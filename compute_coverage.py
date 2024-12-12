@@ -2,7 +2,6 @@ import sys, os
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from delphin import itsdb
-import numpy as np
 
 # Global color map to store model colors consistently
 model_colors = {}
@@ -76,7 +75,7 @@ def plot_binned_coverage_per_section(cov_by_len, sen_by_len, model_colors, bin_s
             plt.plot(lengths, coverages, marker='o', linestyle='-', color=model_colors[model_name],
                      label=f'{model_name}-{section_name} (Binned)', markersize=5)
         plt.xlabel('Length (Binned)', fontsize=14)
-        plt.ylabel('Coverage (Average in Bin)', fontsize=14)
+        plt.ylabel('Coverage (Binned)', fontsize=14)
         plt.title(f'Binned Coverage vs Length - {section_name}', fontsize=16)
         plt.grid(True)
         output_filename = f'plots/all-lengths/coverage_vs_length_{section_name}.png'
@@ -93,7 +92,6 @@ def plot_coverage_table(cov_by_len, sen_by_len, dataset_names, model_colors):
     model_names = set()
     totals = {}
     lengths = {}
-
     # Loop through each dataset (model) and calculate coverage per section
     for dataset_name in dataset_names:
         model_name = dataset_name.split('-')[0]  # Extract the model name (e.g., 'original', 'llama_7B')
@@ -104,94 +102,69 @@ def plot_coverage_table(cov_by_len, sen_by_len, dataset_names, model_colors):
         model_names.add(model_name)
         cov_by_len_for_dataset = cov_by_len[section_name][model_name]
         sen_by_len_for_dataset = sen_by_len[section_name][model_name]
-
         # Compute true coverage (no binning) for the entire section
         total_coverage = sum(cov_by_len_for_dataset.values()) / sum(
             sen_by_len_for_dataset.values()) if sen_by_len_for_dataset else 0
         totals[model_name] += sum(cov_by_len_for_dataset.values())
         lengths[model_name] += sum(sen_by_len_for_dataset.values())
-
-        # Store coverage data in a dictionary
         if section_name not in coverage_data:
             coverage_data[section_name] = {}
         coverage_data[section_name][model_name] = total_coverage
-
-        # Collect section names
         section_names.add(section_name)
-
     # Prepare the table headers: models as columns
     header = ['Section'] + sorted(list(model_names))
     section_coverages = {section: [] for section in section_names}
-
-    # Open the file to write the table
     with open("coverage/coverage.txt", "w") as f:
-        # Write the header (section names and model names)
         f.write("\t".join(header) + "\n")
-
-        # Collect coverage data for each section
         for section in coverage_data:
             row = [section]
             for model_name in sorted(list(model_names)):
                 coverage = coverage_data[section].get(model_name, 0)
                 section_coverages[section].append(coverage)
                 row.append(f"{coverage:.2f}")
-            # Write the row to the table
             f.write("\t".join(row) + "\n")
-
         # Write the total coverage for each model
         f.write("\t".join(["Total"] + [f"{totals[model_name] / lengths[model_name]:.2f}" for model_name in
                                        sorted(list(model_names))]) + "\n")
-
     print("Coverage table saved to 'coverage.txt'.")
-
     total_coverages = [totals[model_name] / lengths[model_name] if lengths[model_name] > 0 else 0 for model_name in
                        sorted(list(totals.keys()))]
-
     # Create bar plot
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.bar(sorted(list(totals.keys())), total_coverages,
            color=[model_colors[model_name] for model_name in sorted(list(totals.keys()))])
-
     ax.set_xlabel('Model')
     ax.set_ylabel('Total Coverage')
     ax.set_title('Total Coverage by Model')
     plt.tight_layout()
-
     plt.savefig("plots/total_coverage.png")
     print("Total coverage plot saved to 'plots/total_coverage.png'.")
 
 
-def plot_binned_coverage_all_data(cov_by_len, sen_by_len, bin_size=5):
+def plot_binned_coverage_all_data(total_coverages_by_model, total_sentences_by_model, bin_size=5):
     # Prepare a dictionary to hold binned data for each model
     binned_coverage_by_model = {}
-
-    for section_name in cov_by_len:
-        for model_name in cov_by_len[section_name]:
-            cov_by_len_for_dataset = cov_by_len[section_name][model_name]
-            sen_by_len_for_dataset = sen_by_len[section_name][model_name]
-
-            # Bin the data for each model separately
-            binned_cov, binned_sen = bin_data(cov_by_len_for_dataset, sen_by_len_for_dataset, bin_size)
-
-            # Store binned data by model
-            binned_coverage_by_model[model_name] = (binned_cov, binned_sen)
-
+    for model_name in total_coverages_by_model['length']:
+        cov = total_coverages_by_model['length'][model_name]
+        sen = total_sentences_by_model['length'][model_name]
+        # Bin the data for each model separately
+        binned_cov, binned_sen = bin_data(cov, sen, bin_size)
+        # Store binned data by model
+        binned_coverage_by_model[model_name] = (binned_cov, binned_sen)
     # Create the plot
     fig, ax = plt.subplots(figsize=(10, 6))
-
     # Loop over the binned data and plot each model's data
     for model_name in binned_coverage_by_model:
         binned_cov, binned_sen = binned_coverage_by_model[model_name]
         lengths = list(binned_cov.keys())
         coverages = [binned_cov[l] for l in lengths]
-        ax.plot(lengths, coverages, marker='o', linestyle='-', label=f'{model_name} (Binned)', markersize=5)
-
+        ax.plot(lengths, coverages, marker='o', linestyle='-', label=f'{model_name} (Binned)', markersize=5,
+                color=model_colors[model_name])
     # Add labels, title, and grid
     ax.set_xlabel('Length (Binned)', fontsize=14)
     ax.set_ylabel('Coverage (Average in Bin)', fontsize=14)
     ax.set_title(f'Binned Coverage vs Length (All Data by Model)', fontsize=16)
     ax.grid(True)
-
     # Adjust the layout and save the plot
     plt.tight_layout()
     plt.legend()
@@ -298,12 +271,11 @@ def plot_zoomed_coverage(cov_by_len, sen_by_len, model_colors, min, max, bin_siz
         plt.close()
         print(f"Saved zoomed plot as {output_filename}")
 # Example usage
-def process_datasets(path_to_datasets):
+def process_datasets(path_to_datasets, total_coverage, total_sentences):
     colors = cm.get_cmap('tab10', 10)
     cov_by_len = {}
     sen_by_len = {}
     dataset_names = []
-
     for subdir in os.listdir(path_to_datasets):
         subdir_path = os.path.join(path_to_datasets, subdir)
         if os.path.isdir(subdir_path):
@@ -320,16 +292,31 @@ def process_datasets(path_to_datasets):
                         sen_by_len[section_name] = {}
                     cov_by_len[section_name][model_name] = dataset_cov_by_len
                     sen_by_len[section_name][model_name] = dataset_sen_by_len
+                    if not model_name in total_coverage['model']:
+                        total_coverage['model'][model_name] = 0
+                        total_sentences['model'][model_name] = 0
+                        total_coverage['length'][model_name] = {}
+                        total_sentences['length'][model_name] = {}
+                    total_coverage['model'][model_name] += sum(dataset_cov_by_len.values())
+                    total_sentences['model'][model_name] += sum(dataset_sen_by_len.values())
+                    for l in dataset_cov_by_len:
+                        if l not in total_coverage['length'][model_name]:
+                            total_coverage['length'][model_name][l] = 0
+                            total_sentences['length'][model_name][l] = 0
+                        total_coverage['length'][model_name][l] += dataset_cov_by_len[l]
+                        total_sentences['length'][model_name][l] += dataset_sen_by_len.get(l, 0)
                     if model_name not in model_colors:
                         model_colors[model_name] = colors(len(model_colors))
 
     plot_binned_coverage_per_section(cov_by_len, sen_by_len, model_colors,5)
-    plot_zoomed_coverage(cov_by_len, sen_by_len, model_colors, 10, 20, 3)
-    plot_zoomed_binned_coverage_all_data(cov_by_len, sen_by_len, 10, 20, 3)
-    plot_binned_coverage_all_data(cov_by_len, sen_by_len, 5)
+    #plot_zoomed_coverage(cov_by_len, sen_by_len, model_colors, 13, 25, 2)
+    #plot_zoomed_binned_coverage_all_data(cov_by_len, sen_by_len, 13, 25, 2)
+    plot_binned_coverage_all_data(total_coverage, total_sentences, 5)
     plot_coverage_table(cov_by_len, sen_by_len, dataset_names, model_colors)
 
 
 if __name__ == '__main__':
     path_to_datasets = sys.argv[1]
-    process_datasets(path_to_datasets)
+    total_cov = {'model': {}, 'length': {}}
+    total_sen = {'model': {}, 'length': {}}
+    process_datasets(path_to_datasets, total_cov, total_sen)
