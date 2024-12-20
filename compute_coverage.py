@@ -124,6 +124,7 @@ def plot_coverage_table(cov_by_len, sen_by_len, dataset_names, total_coverages_b
            color=[model_colors[model_name] for model_name in sorted(list(totals.keys()))])
     ax.set_xlabel('Model')
     ax.set_ylabel('Total Coverage')
+    ax.set_ylim(0.8, 1.0)
     ax.set_title('Total Coverage by Model')
     plt.tight_layout()
     plt.savefig("plots/total_coverage.png")
