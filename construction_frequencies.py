@@ -92,13 +92,20 @@ def read_freq(data_dir, lex, depth):
                             rule = re.sub(pattern, r"\1\2", rule)
                         if model not in freq_by_model[relevant_dict]:
                             freq_by_model[relevant_dict][model] = {}
-                        if relevant_dict == 'lextype' and depth > 0:
-                            supertypes = get_n_supertypes(lex, rule, depth)
-                            if supertypes:
-                                for st in supertypes[depth-1]:
-                                    if st not in freq_by_model[relevant_dict][model]:
-                                        freq_by_model[relevant_dict][model][st] = 0
-                                    freq_by_model[relevant_dict][model][st] += freq
+                        if relevant_dict == 'lextype':
+                            if freq/dataset_sizes[model] < 0.01:
+                                continue
+                            if depth > 0:
+                                supertypes = get_n_supertypes(lex, rule, depth)
+                                if supertypes:
+                                    for st in supertypes[depth-1]:
+                                        if st not in freq_by_model[relevant_dict][model]:
+                                            freq_by_model[relevant_dict][model][st] = 0
+                                        freq_by_model[relevant_dict][model][st] += freq
+                            else:
+                                if rule not in freq_by_model[relevant_dict][model]:
+                                    freq_by_model[relevant_dict][model][rule] = 0
+                                freq_by_model[relevant_dict][model][rule] += freq
                         else:
                             if rule not in freq_by_model[relevant_dict][model]:
                                 freq_by_model[relevant_dict][model][rule] = 0
@@ -140,7 +147,7 @@ if __name__ == '__main__':
     only_in_original, not_in_original, only_in_original_per_model = exclusive_members(frequencies)
     for model in dataset_sizes.keys():
         if not model == 'original':
-            freq_counts_by_model(frequencies, model, 'original',0, 50, "Top frequencies", reverse=True)
-            freq_counts_by_model(reverse_frequencies, model, 'original', 0,50, "Bottom frequencies", reverse=False)
-            freq_counts_by_model(frequencies, 'original', model, 0, 50, "Top frequencies", reverse=True)
-            freq_counts_by_model(reverse_frequencies, 'original', model,  0,50, "Bottom frequencies", reverse=False)
+            freq_counts_by_model(frequencies, model, 'original',0, 100, "Top frequencies", reverse=True)
+            freq_counts_by_model(reverse_frequencies, model, 'original', 0,100, "Bottom frequencies", reverse=False)
+            freq_counts_by_model(frequencies, 'original', model, 0, 100, "Top frequencies", reverse=True)
+            freq_counts_by_model(reverse_frequencies, 'original', model,  0,100, "Bottom frequencies", reverse=False)
