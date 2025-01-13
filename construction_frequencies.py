@@ -256,6 +256,72 @@ def print_cosine_similarities(similarities_dict):
     print("****************************************************************************************")
 
 
+def compare_with_other_datasets(selected_dataset, cosine_similarities):
+    selected_dataset_similarities = {}
+    max_other_similarities = {}
+    for (dataset1, dataset2), similarity in cosine_similarities.items():
+        # If selected_dataset is in the pair, record the similarity with the other dataset
+        if selected_dataset in (dataset1, dataset2):
+            other_dataset = dataset1 if selected_dataset == dataset2 else dataset2
+            selected_dataset_similarities[other_dataset] = similarity
+        else:
+            # For pairs excluding the selected dataset, track the max similarity between them
+            if dataset1 not in max_other_similarities:
+                max_other_similarities[dataset1] = {}
+            if dataset2 not in max_other_similarities:
+                max_other_similarities[dataset2] = {}
+            max_other_similarities[dataset1][dataset2] = similarity
+            max_other_similarities[dataset2][dataset1] = similarity
+    # Now check if the selected dataset's differences are larger than those between other pairs
+    comparison_results = {}
+    for other_dataset, selected_similarity in selected_dataset_similarities.items():
+        max_similarity_between_others = max(max_other_similarities[other_dataset].values())
+        # Compare if the difference for selected dataset is greater
+        difference_with_selected = 1 - selected_similarity  # Since cosine similarity is between 0 and 1
+        difference_between_others = 1 - max_similarity_between_others
+        comparison_results[other_dataset] = (difference_with_selected > difference_between_others, (difference_with_selected, difference_between_others))
+    return comparison_results
+
+
+def compare_human_vs_machine(my_dataset, cosine_similarities, human_datasets, machine_datasets):
+    similarities_with_human = {}
+    similarities_with_machine = {}
+    similarities_between_machine = {}
+    # Loop over all the cosine similarities to separate them based on dataset type
+    for (dataset1, dataset2), similarity in cosine_similarities.items():
+        if dataset1 == my_dataset:
+            if dataset2 in human_datasets:
+                similarities_with_human[dataset2] = similarity
+            elif dataset2 in machine_datasets:
+                similarities_with_machine[dataset2] = similarity
+        elif dataset2 == my_dataset:
+            if dataset1 in human_datasets:
+                similarities_with_human[dataset1] = similarity
+            elif dataset1 in machine_datasets:
+                similarities_with_machine[dataset1] = similarity
+        else:
+            if dataset1 in machine_datasets and dataset2 in machine_datasets:
+                similarities_between_machine[(dataset1, dataset2)] = similarity
+    # Average similarity between machine-generated datasets
+    avg_machine_similarity = np.mean(list(similarities_between_machine.values())) if similarities_between_machine else 0
+    # Average similarity between my_dataset and machine-generated datasets:
+    avg_similarity_with_machine = np.mean(list(similarities_with_machine.values())) if similarities_with_machine else 0
+    return avg_machine_similarity, avg_similarity_with_machine, similarities_with_human
+
+
+def report_comparison(my_dataset, machine_datasets, human_datasets, cosines):
+    avg_machine, avg_with_machine, all_human = compare_human_vs_machine(my_dataset, cosines, human_datasets,
+                                                                        machine_datasets)
+    # Print the results
+    print("Average similarity between machine-generated datasets: {:.4f}".format(avg_machine))
+    print("Average similarity between {} and machine-generated datasets: {:.4f}".format(my_dataset,
+                                                                                                             avg_with_machine))
+    print("Similarities between {} and human-authored datasets:".format(my_dataset))
+    for dataset, similarity in all_human.items():
+        print(f"{dataset}: {similarity}")
+    print('All data:')
+    print_cosine_similarities(cosines)
+
 
 if __name__ == '__main__':
     data_dir = sys.argv[1]
@@ -277,15 +343,15 @@ if __name__ == '__main__':
     constr_and_lexrule_cosines = compute_cosine(no_lextype)
     lexical_cosines = compute_cosine(only_lexical)
     vocab_cosines = compute_cosine(only_vocab)
-    # print the cosine similarities:
-    print('All data:')
-    print_cosine_similarities(all_cosines)
+    my_dataset = "original" 
+    human_datasets = ["wikipedia", "wsj"]
+    machine_datasets = list(set(dataset_sizes.keys())-set(human_datasets)-{my_dataset})
+    report_comparison(my_dataset, machine_datasets, human_datasets, all_cosines)
     print('Only syntactic:')
-    print_cosine_similarities(syntactic_cosines)
+    report_comparison(my_dataset, machine_datasets, human_datasets, syntactic_cosines)
     print('Constructions and lexical rules:')
-    print_cosine_similarities(constr_and_lexrule_cosines)
+    report_comparison(my_dataset, machine_datasets, human_datasets, constr_and_lexrule_cosines)
     print('Only lexical rules:')
-    print_cosine_similarities(lexical_cosines)
+    report_comparison(my_dataset, machine_datasets, human_datasets, lexical_cosines)
     print('Only vocabulary:')
-    print_cosine_similarities(vocab_cosines)
-    print('Done.')
+    report_comparison(my_dataset, machine_datasets, human_datasets, vocab_cosines)

@@ -207,6 +207,7 @@ def plot_zoomed_coverage(cov_by_len, sen_by_len, model_colors, min, max, bin_siz
         plt.savefig(output_filename)
         plt.close()
         print(f"Saved zoomed plot as {output_filename}")
+
 def process_datasets(path_to_datasets, total_coverage, total_sentences):
     colors = cm.get_cmap('tab10', 10)
     cov_by_len = {}
