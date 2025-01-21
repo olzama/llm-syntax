@@ -5,6 +5,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import hashlib
 
+EXCLUDE_AUTHORS = {'New York Times Games', ' York Times Audio', 'New York Times Audio', 'The Learning Network',
+                   'Florence Fabricant',
+                   'The New York Times', 'The New York Times Cooking', 'New York Times Games', 'New York Times Opinion',
+                   'ABC Australia', 'The New York Times Magazine', 'News Nation', 'NBC News', 'Nbc news',
+                   'The New York Times Books Staff',
+                   }
+
 
 def generate_key(sentence: str) -> str:
     # Hash the sentence and get a unique fixed-length key
@@ -96,12 +103,8 @@ if __name__ == '__main__':
     per_author = {k: v for k, v in sorted(per_author.items(), key=lambda item: len(item[1]), reverse=True)}
     single_authored = {}
     # Report the number of sentences per author, including the maximum, the mean, and the median.
-    exclude_authors = {'New York Times Games', ' York Times Audio', 'New York Times Audio', 'The Learning Network', 'Florence Fabricant',
-                       'The New York Times', 'The New York Times Cooking', 'New York Times Games', 'New York Times Opinion',
-                       'ABC Australia',  'The New York Times Magazine', 'News Nation', 'NBC News', 'Nbc news', 'The New York Times Books Staff',
-                       }
     for author, sentences in per_author.items():
-        if (not author) or ',' in author or ' and ' in author or author[2:].strip() in exclude_authors:
+        if (not author) or ',' in author or ' and ' in author or author[2:].strip() in EXCLUDE_AUTHORS:
             continue
         single_authored[author] = sentences
         clean_author = author.replace(" ", "_").replace("&", "and").replace(".", "")

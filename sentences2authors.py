@@ -4,6 +4,8 @@ from delphin import itsdb, derivation, commands
 from count_constructions import traverse_derivation
 from supertypes import get_n_supertypes, populate_type_defs
 from extract_sentences import generate_key
+from extract_sentences import EXCLUDE_AUTHORS
+from construction_frequencies import compute_cosine, cosine_similarity, combine_types
 
 def create_database_subset(data_dir, output_dir, db_schema):
     db = itsdb.TestSuite(data_dir)
@@ -28,6 +30,8 @@ def map_sen2authors(data_dir, sen2authors, depth=1):
             preterminals = set([pt.entity for pt in deriv.preterminals()])
             authors = sen2authors[sen_key]['authors']
             for author in authors:
+                if (not author) or ',' in author or ' and ' in author or author[2:].strip() in EXCLUDE_AUTHORS:
+                    continue
                 if author not in types_by_author:
                     types_by_author[author] = {'constr': {}, 'lexrule': {}, 'lextype': {}}
                 traverse_derivation(deriv, types_by_author[author], preterminals, lex, depth)
@@ -54,10 +58,9 @@ def map_sen2authors(data_dir, sen2authors, depth=1):
         for relevant_dict in ['constr', 'lexrule', 'lextype']:
             sorted_types[relevant_dict] = {k: v for k, v in sorted(types_by_author[author][relevant_dict].items(), key=lambda item: (item[1], item[0]), reverse=True)}
         types_by_author[author] = sorted_types
-    # Create a new dict which is organized by construction type (constr, lexrule, lextype), and then by author:
-    by_ctype = {}
+    by_ctype = {'constr': {}, 'lexrule': {}, 'lextype': {}}
+    # Organize the same data by construction type first:
     for ctype in ['constr', 'lexrule', 'lextype']:
-        by_ctype[ctype] = {}
         for author in types_by_author:
             by_ctype[ctype][author] = types_by_author[author][ctype]
     return types_by_author, by_ctype
@@ -71,5 +74,9 @@ if __name__ == '__main__':
     #small_db = create_database_subset(data_dir, 'small_db', data_dir + '/relations')
     with open(sys.argv[3], 'r') as sen2authors_file:
         sen2authors = json.load(sen2authors_file)
-    types_by_author = map_sen2authors(data_dir, sen2authors)
+    # Non-single-authored sentences are excluded from the analysis:
+    by_author_ctype, by_ctype_author = map_sen2authors(data_dir, sen2authors)
+    # Select author pairs where the author name represents a single author:
+    syntax_only = combine_types(by_ctype_author, ['constr'])
+    syntax_cosines = compute_cosine(syntax_only)
     print(5)
