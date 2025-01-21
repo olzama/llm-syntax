@@ -15,21 +15,10 @@ def create_database_subset(data_dir, output_dir, db_schema):
 def map_sen2authors(data_dir, sen2authors, depth=1):
     types_by_author = {}
     sorted_types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
-
-    dataset_size = 0
     db = itsdb.TestSuite(data_dir)
-    # create a small database for debugging:
     processed_items = list(db.processed_items())
-    items = list(db['item'])
-    assert len(items) == len(sen2authors)
     for i, response in enumerate(processed_items):
         if len(response['results']) > 0:
-            #id = response['i-id']
-            # retrieve the item from db['i-id'] where i-id = id:
-            #q = '* from item' + ' where i-id = ' + str(id)
-            #selection = commands.select(q, data_dir)
-            #target_text = selection.data[0][6].strip()
-            #assert target_text == response['i-input']
             sen = response['i-input']
             sen_key = generate_key(sen)
             assert sen_key in sen2authors
@@ -42,15 +31,45 @@ def map_sen2authors(data_dir, sen2authors, depth=1):
                 if author not in types_by_author:
                     types_by_author[author] = {'constr': {}, 'lexrule': {}, 'lextype': {}}
                 traverse_derivation(deriv, types_by_author[author], preterminals, lex, depth)
-            else:
-                print("Sentence {} does not match sen2authors".format(sen))
-                exit(1)
+    # Collect all possible construction type names, and insert 0 counts where necessary such that all dicts are of the same length for each author:
+    all_constrs = set()
+    all_lexrules = set()
+    all_lextypes = set()
+    for author in types_by_author:
+        all_constrs.update(types_by_author[author]['constr'])
+        all_lexrules.update(types_by_author[author]['lexrule'])
+        all_lextypes.update(types_by_author[author]['lextype'])
+    for author in types_by_author:
+        for constr in all_constrs:
+            if constr not in types_by_author[author]['constr']:
+                types_by_author[author]['constr'][constr] = 0
+        for lexrule in all_lexrules:
+            if lexrule not in types_by_author[author]['lexrule']:
+                types_by_author[author]['lexrule'][lexrule] = 0
+        for lextype in all_lextypes:
+            if lextype not in types_by_author[author]['lextype']:
+                types_by_author[author]['lextype'][lextype] = 0
+    # For each author, sort the items by each construction frequency, and then by construction name:
+    for author in types_by_author:
+        for relevant_dict in ['constr', 'lexrule', 'lextype']:
+            sorted_types[relevant_dict] = {k: v for k, v in sorted(types_by_author[author][relevant_dict].items(), key=lambda item: (item[1], item[0]), reverse=True)}
+        types_by_author[author] = sorted_types
+    # Create a new dict which is organized by construction type (constr, lexrule, lextype), and then by author:
+    by_ctype = {}
+    for ctype in ['constr', 'lexrule', 'lextype']:
+        by_ctype[ctype] = {}
+        for author in types_by_author:
+            by_ctype[ctype][author] = types_by_author[author][ctype]
+    return types_by_author, by_ctype
+
+
 
 if __name__ == '__main__':
     data_dir = sys.argv[1]
     erg_dir = sys.argv[2]
-    #lex = populate_type_defs(erg_dir)
+    lex = populate_type_defs(erg_dir)
     #small_db = create_database_subset(data_dir, 'small_db', data_dir + '/relations')
     with open(sys.argv[3], 'r') as sen2authors_file:
         sen2authors = json.load(sen2authors_file)
-    map_sen2authors(data_dir, sen2authors)
+    types_by_author = map_sen2authors(data_dir, sen2authors)
+    print(5)

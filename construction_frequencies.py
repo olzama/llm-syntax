@@ -309,12 +309,12 @@ def compare_human_vs_machine(my_dataset, cosine_similarities, human_datasets, ma
     avg_similarity_with_machine = np.mean(list(similarities_with_machine.values())) if similarities_with_machine else 0
     human_differences = [1 - sim for sim in similarities_with_machine.values()]
     machine_differences = [1 - sim for sim in similarities_between_machine.values()]
-    t_stat, p_value = stat_significance(human_differences, machine_differences)
-    return avg_machine_similarity, avg_similarity_with_machine, similarities_with_human, t_stat, p_value
+    #t_stat, p_value = stat_significance(human_differences, machine_differences)
+    return avg_machine_similarity, avg_similarity_with_machine, similarities_with_human #, t_stat, p_value
 
 
 def report_comparison(my_dataset, machine_datasets, human_datasets, cosines):
-    avg_machine, avg_with_machine, all_human, t_stat, p_value = compare_human_vs_machine(my_dataset, cosines, human_datasets,
+    avg_machine, avg_with_machine, all_human = compare_human_vs_machine(my_dataset, cosines, human_datasets,
                                                                         machine_datasets)
     # Print the results
     print("Average similarity between machine-generated datasets: {:.4f}".format(avg_machine))
@@ -325,7 +325,6 @@ def report_comparison(my_dataset, machine_datasets, human_datasets, cosines):
 
     for dataset, similarity in all_human.items():
         print(f"{dataset}: {similarity}")
-    print("P value: {:.10f}".format(p_value))
     print('All data:')
     print_cosine_similarities(cosines)
 
