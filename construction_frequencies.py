@@ -2,6 +2,7 @@ import sys, os
 import re
 import pandas as pd
 import numpy as np
+from scipy import stats
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from supertypes import get_n_supertypes, populate_type_defs
@@ -306,21 +307,32 @@ def compare_human_vs_machine(my_dataset, cosine_similarities, human_datasets, ma
     avg_machine_similarity = np.mean(list(similarities_between_machine.values())) if similarities_between_machine else 0
     # Average similarity between my_dataset and machine-generated datasets:
     avg_similarity_with_machine = np.mean(list(similarities_with_machine.values())) if similarities_with_machine else 0
-    return avg_machine_similarity, avg_similarity_with_machine, similarities_with_human
+    human_differences = [1 - sim for sim in similarities_with_machine.values()]
+    machine_differences = [1 - sim for sim in similarities_between_machine.values()]
+    t_stat, p_value = stat_significance(human_differences, machine_differences)
+    return avg_machine_similarity, avg_similarity_with_machine, similarities_with_human, t_stat, p_value
 
 
 def report_comparison(my_dataset, machine_datasets, human_datasets, cosines):
-    avg_machine, avg_with_machine, all_human = compare_human_vs_machine(my_dataset, cosines, human_datasets,
+    avg_machine, avg_with_machine, all_human, t_stat, p_value = compare_human_vs_machine(my_dataset, cosines, human_datasets,
                                                                         machine_datasets)
     # Print the results
     print("Average similarity between machine-generated datasets: {:.4f}".format(avg_machine))
     print("Average similarity between {} and machine-generated datasets: {:.4f}".format(my_dataset,
                                                                                                              avg_with_machine))
     print("Similarities between {} and human-authored datasets:".format(my_dataset))
+    # Statistical significance between in all_human:
+
     for dataset, similarity in all_human.items():
         print(f"{dataset}: {similarity}")
+    print("P value: {:.10f}".format(p_value))
     print('All data:')
     print_cosine_similarities(cosines)
+
+def stat_significance(differences1, differences2):
+    # Perform a t-test to compare the differences
+    t_stat, p_value = stats.ttest_ind(differences1, differences2, equal_var=False)
+    return t_stat, p_value
 
 
 if __name__ == '__main__':
@@ -343,7 +355,7 @@ if __name__ == '__main__':
     constr_and_lexrule_cosines = compute_cosine(no_lextype)
     lexical_cosines = compute_cosine(only_lexical)
     vocab_cosines = compute_cosine(only_vocab)
-    my_dataset = "original" 
+    my_dataset = "original"
     human_datasets = ["wikipedia", "wsj"]
     machine_datasets = list(set(dataset_sizes.keys())-set(human_datasets)-{my_dataset})
     report_comparison(my_dataset, machine_datasets, human_datasets, all_cosines)
