@@ -1,5 +1,6 @@
 import sys, os
 import re
+import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -285,37 +286,39 @@ if __name__ == '__main__':
     erg_dir = sys.argv[2]
     lex = populate_type_defs(erg_dir)
     frequencies = read_freq(data_dir, lex, 0)
-    wikipedia, w_size = collect_types(erg_dir+'/tsdb/llm-syntax/wikipedia', lex, 1)
-    wsj, wsj_size = collect_types(erg_dir+'/tsdb/llm-syntax/wsj', lex, 1)
-    add_dataset(frequencies, wikipedia, 'wikipedia')
-    add_dataset(frequencies, wsj, 'wsj')
+    #wikipedia, w_size = collect_types(erg_dir+'/tsdb/llm-syntax/wikipedia', lex, 1)
+    #wsj, wsj_size = collect_types(erg_dir+'/tsdb/llm-syntax/wsj', lex, 1)
+    #add_dataset(frequencies, wikipedia, 'wikipedia')
+    #add_dataset(frequencies, wsj, 'wsj')
+    with open('analysis/frequencies-json/frequencies-models.json', 'w', encoding='utf8') as f:
+        json.dump(frequencies, f)
     #visualize_counts(frequencies)
-    all_data = combine_types(frequencies, ['constr', 'lexrule', 'lextype'])
-    no_lextype = combine_types(frequencies, ['constr', 'lexrule'])
-    only_syntactic = combine_types(frequencies, ['constr'])
-    only_lexical = combine_types(frequencies, ['lexrule'])
-    only_vocab = combine_types(frequencies, ['lextype'])
-    all_cosines = compute_cosine(all_data)
-    syntactic_cosines = compute_cosine(only_syntactic)
-    constr_and_lexrule_cosines = compute_cosine(no_lextype)
-    lexical_cosines = compute_cosine(only_lexical)
-    vocab_cosines = compute_cosine(only_vocab)
-    serialize_dict(all_cosines, 'analysis/cosine-pairs/models/all-data.json')
-    serialize_dict(syntactic_cosines, 'analysis/cosine-pairs/models/syntax-only.json')
-    serialize_dict(constr_and_lexrule_cosines, 'analysis/cosine-pairs/models/no-lextype.json')
-    serialize_dict(lexical_cosines, 'analysis/cosine-pairs/models/lexrule-only.json')
-    serialize_dict(vocab_cosines, 'analysis/cosine-pairs/models/lextype-only.json')
-    #with open('analysis/cosine-pairs/authors/all-cosines.json', 'r') as file:
-    #    author_pairs_cosines_all = json.load(file)
-    my_dataset = "original"
-    human_datasets = ["wikipedia", "wsj"]
-    machine_datasets = list(set(dataset_sizes.keys())-set(human_datasets)-{my_dataset})
-    report_comparison(my_dataset, machine_datasets, human_datasets, all_cosines)
-    print('Only syntactic:')
-    report_comparison(my_dataset, machine_datasets, human_datasets, syntactic_cosines)
-    print('Constructions and lexical rules:')
-    report_comparison(my_dataset, machine_datasets, human_datasets, constr_and_lexrule_cosines)
-    print('Only lexical rules:')
-    report_comparison(my_dataset, machine_datasets, human_datasets, lexical_cosines)
-    print('Only vocabulary:')
-    report_comparison(my_dataset, machine_datasets, human_datasets, vocab_cosines)
+    # all_data = combine_types(frequencies, ['constr', 'lexrule', 'lextype'])
+    # no_lextype = combine_types(frequencies, ['constr', 'lexrule'])
+    # only_syntactic = combine_types(frequencies, ['constr'])
+    # only_lexical = combine_types(frequencies, ['lexrule'])
+    # only_vocab = combine_types(frequencies, ['lextype'])
+    # all_cosines = compute_cosine(all_data)
+    # syntactic_cosines = compute_cosine(only_syntactic)
+    # constr_and_lexrule_cosines = compute_cosine(no_lextype)
+    # lexical_cosines = compute_cosine(only_lexical)
+    # vocab_cosines = compute_cosine(only_vocab)
+    # serialize_dict(all_cosines, 'analysis/cosine-pairs/models/all-data.json')
+    # serialize_dict(syntactic_cosines, 'analysis/cosine-pairs/models/syntax-only.json')
+    # serialize_dict(constr_and_lexrule_cosines, 'analysis/cosine-pairs/models/no-lextype.json')
+    # serialize_dict(lexical_cosines, 'analysis/cosine-pairs/models/lexrule-only.json')
+    # serialize_dict(vocab_cosines, 'analysis/cosine-pairs/models/lextype-only.json')
+    # #with open('analysis/cosine-pairs/authors/all-cosines.json', 'r') as file:
+    # #    author_pairs_cosines_all = json.load(file)
+    # my_dataset = "original"
+    # human_datasets = ["wikipedia", "wsj"]
+    # machine_datasets = list(set(dataset_sizes.keys())-set(human_datasets)-{my_dataset})
+    # report_comparison(my_dataset, machine_datasets, human_datasets, all_cosines)
+    # print('Only syntactic:')
+    # report_comparison(my_dataset, machine_datasets, human_datasets, syntactic_cosines)
+    # print('Constructions and lexical rules:')
+    # report_comparison(my_dataset, machine_datasets, human_datasets, constr_and_lexrule_cosines)
+    # print('Only lexical rules:')
+    # report_comparison(my_dataset, machine_datasets, human_datasets, lexical_cosines)
+    # print('Only vocabulary:')
+    # report_comparison(my_dataset, machine_datasets, human_datasets, vocab_cosines)

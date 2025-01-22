@@ -1,13 +1,8 @@
-import sys, os
-import re
 import json
-import pandas as pd
 import numpy as np
+from scipy import stats
 import matplotlib.pyplot as plt
-from collections import defaultdict
-from supertypes import get_n_supertypes, populate_type_defs
-from count_constructions import collect_types
-from util import compute_cosine, print_cosine_similarities, serialize_dict
+import seaborn as sns
 
 if __name__ == '__main__':
     # Load cosine pairs for all LLMs:
@@ -26,5 +21,11 @@ if __name__ == '__main__':
     human_var = np.var(human_cosine_list)
     llm_stdev = np.std(llm_cosine_list)
     human_stdev = np.std(human_cosine_list)
-
-    print(5)
+    f_statistic, p_value = stats.levene(llm_cosine_list, human_cosine_list)
+    print(f"F-statistic: {f_statistic}, p-value: {p_value}")
+    plt.figure(figsize=(10, 6))
+    sns.boxplot(data=[llm_cosine_list, human_cosine_list])
+    plt.xticks([0, 1], ['LLMs', 'Humans'])
+    plt.ylabel('Cosine Similarity')
+    plt.title('Boxplot Comparison of Cosine Similarities (LLMs vs Humans)')
+    plt.savefig('/mnt/kesha/llm-syntax/analysis/cosine-pairs/models_vs_authors.png')
