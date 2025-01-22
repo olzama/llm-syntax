@@ -1,22 +1,13 @@
 import sys, os
 import json
-from delphin import itsdb, derivation, commands
+from delphin import itsdb, derivation
 from count_constructions import traverse_derivation
-from supertypes import get_n_supertypes, populate_type_defs
-from extract_sentences import generate_key
-from extract_sentences import EXCLUDE_AUTHORS
-from construction_frequencies import compute_cosine, cosine_similarity, combine_types, print_cosine_similarities
-
-def create_database_subset(data_dir, output_dir, db_schema):
-    db = itsdb.TestSuite(data_dir)
-    ids = [ item['i-id'] for item in db['item'][:10] ]
-    q = 'i-id = ' + ' or i-id = '.join([str(i) for i in ids])
-    commands.mkprof(output_dir, source=data_dir, schema=db_schema, where=q, full=True)
-
+from supertypes import populate_type_defs
+from construction_frequencies import combine_types
+from util import serialize_dict, generate_key, compute_cosine
 
 def map_sen2authors(data_dir, sen2authors, only_these_authors, depth=1):
     types_by_author = {}
-    sorted_types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
     db = itsdb.TestSuite(data_dir)
     processed_items = list(db.processed_items())
     for i, response in enumerate(processed_items):
@@ -70,7 +61,6 @@ def map_sen2authors(data_dir, sen2authors, only_these_authors, depth=1):
     return sorted_types_by_author, by_ctype
 
 
-
 if __name__ == '__main__':
     data_dir = sys.argv[1]
     erg_dir = sys.argv[2]
@@ -92,14 +82,9 @@ if __name__ == '__main__':
     no_lextype_cosines = compute_cosine(no_lextype)
     lexrule_cosines = compute_cosine(lexrule_only)
     lextype_cosines = compute_cosine(lextype_only)
-    print("All data:")
-    print_cosine_similarities(all_cosines)
-    print("Syntax only:")
-    print_cosine_similarities(syntax_cosines)
-    print("No lextype:")
-    print_cosine_similarities(no_lextype_cosines)
-    print("Lexrule only:")
-    print_cosine_similarities(lexrule_cosines)
-    print("Lextype only:")
-    print_cosine_similarities(lextype_cosines)
-    print(5)
+    # Serialize as json:
+    serialize_dict(all_cosines, 'analysis/cosine-pairs/authors/all-data.json')
+    serialize_dict(syntax_cosines, 'analysis/cosine-pairs/authors/syntax-only.json')
+    serialize_dict(no_lextype_cosines, 'analysis/cosine-pairs/authors/no-lextype.json')
+    serialize_dict(lexrule_cosines, 'analysis/cosine-pairs/authors/lexrule-only.json')
+    serialize_dict(lextype_cosines, 'analysis/cosine-pairs/authors/lextype-only.json')

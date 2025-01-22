@@ -2,11 +2,11 @@ import sys, os
 import re
 import pandas as pd
 import numpy as np
-from scipy import stats
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from supertypes import get_n_supertypes, populate_type_defs
 from count_constructions import collect_types
+from util import compute_cosine, print_cosine_similarities, serialize_dict
 
 dataset_sizes = {'original':26102,'falcon_07':27769, 'llama_07':37825, 'llama_13':37800,'llama_30':37568,
                  'llama_65':38107,'mistral_07':35086, 'wikipedia': 10726, 'wsj': 43043}
@@ -171,7 +171,6 @@ def add_dataset(frequencies, new_dataset, dataset_name):
             if rule not in frequencies[rule_type][dataset_name]:
                 frequencies[rule_type][dataset_name][rule] = 0
 
-
 def visualize_counts(frequencies):
     reverse_frequencies = normalize_by_num_sen(frequencies)
     # only_in_original, not_in_original, only_in_original_per_model = exclusive_members(frequencies)
@@ -198,44 +197,6 @@ def visualize_counts(frequencies):
             freq_counts_by_model(reverse_frequencies, human_authored[2], human_authored[0], human_authored[1], model,
                                  start, end, "Bottom frequencies", reverse=False)
 
-
-def cosine_similarity(vec1, vec2):
-    dot_product = np.dot(vec1, vec2)
-    norm1 = np.linalg.norm(vec1)
-    norm2 = np.linalg.norm(vec2)
-    if norm1 == 0 or norm2 == 0:
-        return 0
-    return dot_product / (norm1 * norm2)
-
-def compute_cosine(data):
-    dataset_vectors = build_vectors(data)
-    dataset_names = sorted(list(dataset_vectors.keys()))
-    cosine_similarities = {}
-    for i in range(len(dataset_names)):
-        for j in range(i + 1, len(dataset_names)):
-            dataset1 = dataset_names[i]
-            dataset2 = dataset_names[j]
-            similarity = cosine_similarity(dataset_vectors[dataset1], dataset_vectors[dataset2])
-            cosine_similarities[(dataset1, dataset2)] = similarity
-    return cosine_similarities
-
-def build_vectors(data):
-    constrs = set()
-    for dataset in data:
-        constrs.update(data[dataset].keys())
-    dataset_vectors = defaultdict(lambda: np.zeros(len(constrs)))
-    constrs = list(constrs)
-    constr_to_index = {constr: idx for idx, constr in enumerate(constrs)}
-    for dataset_name, constructions in data.items():
-        # Create a vector for each dataset
-        vector = np.zeros(len(constrs))
-        total_constr_count = sum(constructions.values())
-        for constr, count in constructions.items():
-            normalized_count = count / total_constr_count if total_constr_count > 0 else 0
-            vector[constr_to_index[constr]] = normalized_count
-        dataset_vectors[dataset_name] += vector
-    return dataset_vectors
-
 def combine_types(data, relevant_keys):
     combined_data = defaultdict(lambda: defaultdict(int))
     for constr_type, datasets in data.items():
@@ -246,16 +207,6 @@ def combine_types(data, relevant_keys):
                 combined_data[dataset_name][constr] += count  # Add count to the corresponding dataset and constr
     combined_data = {dataset: dict(constrs) for dataset, constrs in combined_data.items()}
     return combined_data
-
-
-def print_cosine_similarities(similarities_dict):
-    print("****************************************************************************************")
-    sorted_pairs = sorted(similarities_dict.keys())
-    for (dataset1, dataset2) in sorted_pairs:
-        similarity = similarities_dict[(dataset1, dataset2)]
-        print(f"Cosine similarity between {dataset1} and {dataset2}: {similarity:.4f}")
-    print("****************************************************************************************")
-
 
 def compare_with_other_datasets(selected_dataset, cosine_similarities):
     selected_dataset_similarities = {}
@@ -328,11 +279,6 @@ def report_comparison(my_dataset, machine_datasets, human_datasets, cosines):
     print('All data:')
     print_cosine_similarities(cosines)
 
-def stat_significance(differences1, differences2):
-    # Perform a t-test to compare the differences
-    t_stat, p_value = stats.ttest_ind(differences1, differences2, equal_var=False)
-    return t_stat, p_value
-
 
 if __name__ == '__main__':
     data_dir = sys.argv[1]
@@ -354,6 +300,13 @@ if __name__ == '__main__':
     constr_and_lexrule_cosines = compute_cosine(no_lextype)
     lexical_cosines = compute_cosine(only_lexical)
     vocab_cosines = compute_cosine(only_vocab)
+    serialize_dict(all_cosines, 'analysis/cosine-pairs/models/all-data.json')
+    serialize_dict(syntactic_cosines, 'analysis/cosine-pairs/models/syntax-only.json')
+    serialize_dict(constr_and_lexrule_cosines, 'analysis/cosine-pairs/models/no-lextype.json')
+    serialize_dict(lexical_cosines, 'analysis/cosine-pairs/models/lexrule-only.json')
+    serialize_dict(vocab_cosines, 'analysis/cosine-pairs/models/lextype-only.json')
+    #with open('analysis/cosine-pairs/authors/all-cosines.json', 'r') as file:
+    #    author_pairs_cosines_all = json.load(file)
     my_dataset = "original"
     human_datasets = ["wikipedia", "wsj"]
     machine_datasets = list(set(dataset_sizes.keys())-set(human_datasets)-{my_dataset})

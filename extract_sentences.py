@@ -3,7 +3,7 @@ import json
 import stanza
 import matplotlib.pyplot as plt
 import numpy as np
-import hashlib
+from util import generate_key, load_json_data
 
 EXCLUDE_AUTHORS = {'New York Times Games', ' York Times Audio', 'New York Times Audio', 'The Learning Network',
                    'Florence Fabricant',
@@ -11,20 +11,6 @@ EXCLUDE_AUTHORS = {'New York Times Games', ' York Times Audio', 'New York Times 
                    'ABC Australia', 'The New York Times Magazine', 'News Nation', 'NBC News', 'Nbc news',
                    'The New York Times Books Staff',
                    }
-
-
-def generate_key(sentence: str) -> str:
-    # Hash the sentence and get a unique fixed-length key
-    return hashlib.sha256(sentence.encode('utf-8')).hexdigest()
-
-
-
-def load_json_data(file_path):
-    with open(file_path, 'r') as file:
-        text = file.read()
-        data = json.loads(text)
-    return data
-
 
 # Function to tokenize paragraphs into sentences
 def tokenize_paragraph(paragraph, stz):

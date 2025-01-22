@@ -51,5 +51,4 @@ if __name__ == '__main__':
     erg_dir = sys.argv[2]
     lex = populate_type_defs(erg_dir)
     types, num_sen = collect_types(data_dir, lex, 1)
-    print(5)
 
