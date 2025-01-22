@@ -5,7 +5,7 @@ from count_constructions import traverse_derivation
 from supertypes import get_n_supertypes, populate_type_defs
 from extract_sentences import generate_key
 from extract_sentences import EXCLUDE_AUTHORS
-from construction_frequencies import compute_cosine, cosine_similarity, combine_types
+from construction_frequencies import compute_cosine, cosine_similarity, combine_types, print_cosine_similarities
 
 def create_database_subset(data_dir, output_dir, db_schema):
     db = itsdb.TestSuite(data_dir)
@@ -14,7 +14,7 @@ def create_database_subset(data_dir, output_dir, db_schema):
     commands.mkprof(output_dir, source=data_dir, schema=db_schema, where=q, full=True)
 
 
-def map_sen2authors(data_dir, sen2authors, depth=1):
+def map_sen2authors(data_dir, sen2authors, only_these_authors, depth=1):
     types_by_author = {}
     sorted_types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
     db = itsdb.TestSuite(data_dir)
@@ -23,14 +23,16 @@ def map_sen2authors(data_dir, sen2authors, depth=1):
         if len(response['results']) > 0:
             sen = response['i-input']
             sen_key = generate_key(sen)
-            assert sen_key in sen2authors
+            if not sen_key in sen2authors:
+                print(sen)
+                continue
             assert sen == sen2authors[sen_key]['sentence']
             derivation_str = response['results'][0]['derivation']
             deriv = derivation.from_string(derivation_str)
             preterminals = set([pt.entity for pt in deriv.preterminals()])
             authors = sen2authors[sen_key]['authors']
             for author in authors:
-                if (not author) or ',' in author or ' and ' in author or author[2:].strip() in EXCLUDE_AUTHORS:
+                if not author in only_these_authors:
                     continue
                 if author not in types_by_author:
                     types_by_author[author] = {'constr': {}, 'lexrule': {}, 'lextype': {}}
@@ -54,16 +56,18 @@ def map_sen2authors(data_dir, sen2authors, depth=1):
             if lextype not in types_by_author[author]['lextype']:
                 types_by_author[author]['lextype'][lextype] = 0
     # For each author, sort the items by each construction frequency, and then by construction name:
+    sorted_types_by_author = {}
     for author in types_by_author:
+        sorted_types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
         for relevant_dict in ['constr', 'lexrule', 'lextype']:
             sorted_types[relevant_dict] = {k: v for k, v in sorted(types_by_author[author][relevant_dict].items(), key=lambda item: (item[1], item[0]), reverse=True)}
-        types_by_author[author] = sorted_types
+        sorted_types_by_author[author] = sorted_types
     by_ctype = {'constr': {}, 'lexrule': {}, 'lextype': {}}
     # Organize the same data by construction type first:
     for ctype in ['constr', 'lexrule', 'lextype']:
         for author in types_by_author:
-            by_ctype[ctype][author] = types_by_author[author][ctype]
-    return types_by_author, by_ctype
+            by_ctype[ctype][author] = sorted_types_by_author[author][ctype]
+    return sorted_types_by_author, by_ctype
 
 
 
@@ -74,9 +78,28 @@ if __name__ == '__main__':
     #small_db = create_database_subset(data_dir, 'small_db', data_dir + '/relations')
     with open(sys.argv[3], 'r') as sen2authors_file:
         sen2authors = json.load(sen2authors_file)
+    with open(sys.argv[4], 'r') as f:
+        only_these_authors = json.load(f)
     # Non-single-authored sentences are excluded from the analysis:
-    by_author_ctype, by_ctype_author = map_sen2authors(data_dir, sen2authors)
-    # Select author pairs where the author name represents a single author:
+    by_author_ctype, by_ctype_author = map_sen2authors(data_dir, sen2authors, only_these_authors)
+    all_data = combine_types(by_ctype_author, ['constr', 'lexrule', 'lextype'])
     syntax_only = combine_types(by_ctype_author, ['constr'])
+    no_lextype = combine_types(by_ctype_author, ['constr', 'lexrule'])
+    lexrule_only = combine_types(by_ctype_author, ['lexrule'])
+    lextype_only = combine_types(by_ctype_author, ['lextype'])
+    all_cosines = compute_cosine(all_data)
     syntax_cosines = compute_cosine(syntax_only)
+    no_lextype_cosines = compute_cosine(no_lextype)
+    lexrule_cosines = compute_cosine(lexrule_only)
+    lextype_cosines = compute_cosine(lextype_only)
+    print("All data:")
+    print_cosine_similarities(all_cosines)
+    print("Syntax only:")
+    print_cosine_similarities(syntax_cosines)
+    print("No lextype:")
+    print_cosine_similarities(no_lextype_cosines)
+    print("Lexrule only:")
+    print_cosine_similarities(lexrule_cosines)
+    print("Lextype only:")
+    print_cosine_similarities(lextype_cosines)
     print(5)

@@ -141,6 +141,10 @@ if __name__ == '__main__':
     plt.savefig('/mnt/kesha/llm-syntax-data/num_sentences_per_author.png')
     with open('/mnt/kesha/llm-syntax-data/sentences2author.json', 'w', encoding='utf-8') as f:
         json.dump(sentence2authors, f, ensure_ascii=False)
+    # List of authors with more than 100 sentences:
+    more_than_hundred = [author for author, sentences in single_authored.items() if len(sentences) > 100]
+    with open('/mnt/kesha/llm-syntax-data/more_than_100.json', 'w') as file:
+        json.dump(more_than_hundred, file, ensure_ascii=False)
     # write_all_sentences(original_per_section, "original")
     # original_sentence_count = write_per_section(original_per_section, "original")
     #
