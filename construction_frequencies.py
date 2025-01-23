@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from supertypes import get_n_supertypes, populate_type_defs
-from count_constructions import collect_types
+from count_constructions import collect_types_multidir
 from util import compute_cosine, print_cosine_similarities, serialize_dict
 
 dataset_sizes = {'original':26102,'falcon_07':27769, 'llama_07':37825, 'llama_13':37800,'llama_30':37568,
@@ -286,11 +286,11 @@ if __name__ == '__main__':
     erg_dir = sys.argv[2]
     lex = populate_type_defs(erg_dir)
     frequencies = read_freq(data_dir, lex, 0)
-    #wikipedia, w_size = collect_types(erg_dir+'/tsdb/llm-syntax/wikipedia', lex, 1)
-    #wsj, wsj_size = collect_types(erg_dir+'/tsdb/llm-syntax/wsj', lex, 1)
-    #add_dataset(frequencies, wikipedia, 'wikipedia')
-    #add_dataset(frequencies, wsj, 'wsj')
-    with open('analysis/frequencies-json/frequencies-models.json', 'w', encoding='utf8') as f:
+    wikipedia = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wikipedia', lex, 1)
+    wsj = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wsj', lex, 1)
+    add_dataset(frequencies, wikipedia, 'wikipedia')
+    add_dataset(frequencies, wsj, 'wsj')
+    with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'w', encoding='utf8') as f:
         json.dump(frequencies, f)
     #visualize_counts(frequencies)
     # all_data = combine_types(frequencies, ['constr', 'lexrule', 'lextype'])

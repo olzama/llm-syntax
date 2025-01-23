@@ -30,6 +30,25 @@ def traverse_derivation(deriv, types, preterminals, lex, depth, visited=None):
                 types[relevant_dict][type] += 1
                 traverse_derivation(node, types, preterminals, lex, depth, visited)
 
+def collect_types_multidir(data_dir, lex, depth, sample_size=None):
+    types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
+    sorted_types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
+    for dataset in os.listdir(data_dir):
+        db = itsdb.TestSuite(os.path.join(data_dir, dataset))
+        items = list(db.processed_items())
+        if sample_size:
+            items = random.sample(items, sample_size)
+        for response in items:
+            if len(response['results']) > 0:
+                derivation_str = response['results'][0]['derivation']
+                deriv = derivation.from_string(derivation_str)
+                preterminals = set([pt.entity for pt in  deriv.preterminals()])
+                traverse_derivation(deriv, types, preterminals, lex, depth)
+    for relevant_dict in sorted_types:
+        sorted_types[relevant_dict] = {k: v for k, v in sorted(types[relevant_dict].items(), key=lambda item: (item[1], item[0]), reverse=True)}
+    return sorted_types
+
+
 def collect_types(data_dir, lex, depth, sample_size=None):
     types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
     sorted_types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
