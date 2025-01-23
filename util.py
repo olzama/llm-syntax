@@ -5,6 +5,14 @@ import json
 import hashlib
 from delphin import itsdb, commands
 
+def normalize_by_constr_count(data):
+    for ctype in data:
+        for model in data[ctype]:
+            total_count = sum(data[ctype][model].values())
+            for constr in data[ctype][model]:
+                data[ctype][model][constr] /= total_count
+    return data
+
 def serialize_dict(data, filename):
     data_to_serialize = {}
     for k in data:

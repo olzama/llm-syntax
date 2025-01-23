@@ -1,6 +1,9 @@
+import json
 import sys, os
 from delphin import itsdb, derivation
 from supertypes import get_n_supertypes, populate_type_defs
+from util import serialize_dict
+import random
 
 def traverse_derivation(deriv, types, preterminals, lex, depth, visited=None):
     """Recursively traverse the derivation and its nodes."""
@@ -27,28 +30,36 @@ def traverse_derivation(deriv, types, preterminals, lex, depth, visited=None):
                 types[relevant_dict][type] += 1
                 traverse_derivation(node, types, preterminals, lex, depth, visited)
 
-def collect_types(data_dir, lex, depth):
+def collect_types(data_dir, lex, depth, sample_size=None):
     types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
     sorted_types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
-    dataset_size = 0
-    for dataset in os.listdir(data_dir):
-        dataset_path = os.path.join(data_dir, dataset)
-        db = itsdb.TestSuite(dataset_path)
-        items = list(db.processed_items())
-        for response in items:
-            if len(response['results']) > 0:
-                dataset_size += 1
-                derivation_str = response['results'][0]['derivation']
-                deriv = derivation.from_string(derivation_str)
-                preterminals = set([pt.entity for pt in  deriv.preterminals()])
-                traverse_derivation(deriv, types, preterminals, lex, depth)
+    db = itsdb.TestSuite(data_dir)
+    items = list(db.processed_items())
+    if sample_size:
+        items = random.sample(items, sample_size)
+    for response in items:
+        if len(response['results']) > 0:
+            derivation_str = response['results'][0]['derivation']
+            deriv = derivation.from_string(derivation_str)
+            preterminals = set([pt.entity for pt in  deriv.preterminals()])
+            traverse_derivation(deriv, types, preterminals, lex, depth)
     for relevant_dict in sorted_types:
         sorted_types[relevant_dict] = {k: v for k, v in sorted(types[relevant_dict].items(), key=lambda item: (item[1], item[0]), reverse=True)}
-    return sorted_types, dataset_size
+    return sorted_types
 
 if __name__ == '__main__':
     data_dir = sys.argv[1]
     erg_dir = sys.argv[2]
+    print("Reading in the ERG lexicon...")
     lex = populate_type_defs(erg_dir)
-    types, num_sen = collect_types(data_dir, lex, 1)
+    types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
+    for model in os.listdir(data_dir):
+        print("Counting constructions in {}...".format(model))
+        dataset_path = os.path.join(data_dir, model)
+        model_types = collect_types(dataset_path, lex, 1, 150)
+        for ctype in types:
+            types[ctype][model] = model_types[ctype]
+    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/frequencies-models-150.json', 'w', encoding='utf8') as f:
+        json.dump(types, f, ensure_ascii=False)
+
 
