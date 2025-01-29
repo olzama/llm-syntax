@@ -7,74 +7,11 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 from supertypes import get_n_supertypes, populate_type_defs
 from count_constructions import collect_types_multidir
-from util import compute_cosine, print_cosine_similarities, serialize_dict
+from util import compute_cosine, print_cosine_similarities, serialize_dict, normalize_by_constr_count, freq_counts_by_model
+
 
 dataset_sizes = {'original':26102,'falcon_07':27769, 'llama_07':37825, 'llama_13':37800,'llama_30':37568,
                  'llama_65':38107,'mistral_07':35086, 'wikipedia': 10726, 'wsj': 43043}
-
-
-'''
-Assume that the types in dicts are already sorted in descending order of frequency
-'''
-def freq_counts_by_model(freq_by_model, model1, model2, model3, model4, start, end, title, reverse):
-    n_constructions = {}
-    for rule_type in freq_by_model:
-        frequencies1 = freq_by_model[rule_type][model1]
-        frequencies2 = freq_by_model[rule_type][model2]
-        frequencies3 = freq_by_model[rule_type][model3]
-        frequencies4 = freq_by_model[rule_type][model4]
-        if rule_type == 'lextype':
-            #continue
-            non_zero_keys = (set(k for k in freq_by_model[rule_type][model1] if freq_by_model[rule_type][model1][k] != 0) &
-                             set(k for k in freq_by_model[rule_type][model2] if freq_by_model[rule_type][model2][k] != 0) &
-                             set(k for k in freq_by_model[rule_type][model3] if freq_by_model[rule_type][model3][k] != 0) &
-                             set(k for k in freq_by_model[rule_type][model4] if freq_by_model[rule_type][model4][k] != 0))
-            frequencies1 = {k: freq_by_model[rule_type][model1][k] for k in non_zero_keys}
-            frequencies2 = {k: freq_by_model[rule_type][model2][k] for k in non_zero_keys}
-            frequencies3 = {k: freq_by_model[rule_type][model3][k] for k in non_zero_keys}
-            frequencies4 = {k: freq_by_model[rule_type][model4][k] for k in non_zero_keys}
-            # re-sort:
-            frequencies1 = {k: v for k, v in sorted(frequencies1.items(), key=lambda item: (item[1], item[0]), reverse=reverse)}
-            frequencies2 = {k: v for k, v in sorted(frequencies2.items(), key=lambda item: (item[1], item[0]), reverse=reverse)}
-            frequencies3 = {k: v for k, v in sorted(frequencies3.items(), key=lambda item: (item[1], item[0]), reverse=reverse)}
-            frequencies4 = {k: v for k, v in sorted(frequencies4.items(), key=lambda item: (item[1], item[0]), reverse=reverse)}
-        n_constructions[model1] = list(frequencies1.items())[start:end]
-        n_constructions[model2] = list(frequencies2.items())[start:end]
-        n_constructions[model3] = list(frequencies3.items())[start:end]
-        n_constructions[model4] = list(frequencies4.items())[start:end]
-        # Prepare the 'original' model data and other models separately
-        m1 = {k: v for k, v in n_constructions[model1]}
-        m2 = {k: v for k, v in n_constructions[model2]}
-        m3 = {k: v for k, v in n_constructions[model3]}
-        m4 = {k: v for k, v in n_constructions[model4]}
-        if len(m1) == 0 or len(m2) == 0 or len(m3) == 0 or len(m4) == 0:
-            print("No common constructions between {}, {}, {}, and {} for {}".format(model1, model2, model3, model4, rule_type))
-            continue
-        df1 = pd.DataFrame(list(m1.items()), columns=[rule_type, model1])
-        df2 = pd.DataFrame(list(m2.items()), columns=[rule_type, model2])
-        df3 = pd.DataFrame(list(m3.items()), columns=[rule_type, model3])
-        df4 = pd.DataFrame(list(m4.items()), columns=[rule_type, model4])
-        # Merge the two DataFrames on 'Construction' for plotting
-        df = pd.merge(df1, df2, on=rule_type, how='left')
-        df = pd.merge(df, df3, on=rule_type, how='left')
-        df = pd.merge(df, df4, on=rule_type, how='left')
-        df = df.fillna(0)  # Handle missing values
-        ax = df.plot(kind='bar', x=rule_type, y=model1, figsize=(14, 8), width=0.8, color='blue', label=model1,
-                     alpha=0.5, zorder=2)
-        # Plotting other models with patterned or outlined bars
-        df.plot(kind='scatter', x=rule_type, y=model2, ax=ax, label=model2, zorder=1, color='red', s=20)
-        df.plot(kind='scatter', x=rule_type, y=model3, ax=ax, label=model3, zorder=1, color='green', s=20)
-        df.plot(kind='scatter', x=rule_type, y=model4, ax=ax, label=model4, zorder=1, color='yellow', s=20)
-        plt.title("Comparison of {} Frequencies".format(rule_type))
-        plt.xlabel(rule_type)
-        plt.ylabel("Frequency (Normalized by dataset size)")
-        plt.xticks(rotation=90)
-        plt.legend(title="{} vs. {}, {}, and {}".format(model1, model2, model3, model4))
-        plt.tight_layout()
-        plt.savefig('analysis/plots/frequencies/{}-{}/{}-{}-{}-{}-{}-{}.png'.format(start, end, title, model1, model2, model3, model4, rule_type))
-        plt.close()
-
-
 
 def exclusive_members(freq_by_model):
     original_constructions = set( [rule for rule in freq_by_model['constr']['original'].keys()
