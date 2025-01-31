@@ -163,8 +163,3 @@ def stat_significance(differences1, differences2):
     t_stat, p_value = stats.ttest_ind(differences1, differences2, equal_var=False)
     return t_stat, p_value
 
-def create_database_subset(data_dir, output_dir, db_schema):
-    db = itsdb.TestSuite(data_dir)
-    ids = [ item['i-id'] for item in db['item'][:10] ]
-    q = 'i-id = ' + ' or i-id = '.join([str(i) for i in ids])
-    commands.mkprof(output_dir, source=data_dir, schema=db_schema, where=q, full=True)
