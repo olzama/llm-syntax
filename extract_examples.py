@@ -5,8 +5,8 @@ from delphin import itsdb, derivation
 from delphin.tokens import YYTokenLattice
 from supertypes import get_n_supertypes, populate_type_defs
 
-def traverse_derivation(root_deriv, deriv, interesting_ex, interesting_types, hapax_ex, hapax_types, preterminals, lex,
-                        depth, ex_text, dataset_name, visited=None):
+def traverse_derivation(deriv, interesting_ex, interesting_types, hapax_ex, hapax_types, preterminals, lex,
+                        depth, ex_text, dataset_name, lattice, tokens, visited=None):
     """Recursively traverse the derivation and its nodes."""
     if visited is None:
         visited = set()
@@ -31,38 +31,15 @@ def traverse_derivation(root_deriv, deriv, interesting_ex, interesting_types, ha
                         interesting_ex[relevant_dict][type] = {}
                     if not dataset_name in interesting_ex[relevant_dict][type]:
                         interesting_ex[relevant_dict][type][dataset_name] = []
-                    constituent = find_constituent(root_deriv, node.start, node.end)
+                    constituent = find_constituent(lattice, node.start, node.end, ex_text)
                     if not constituent:
                         print(5)
                     interesting_ex[relevant_dict][type][dataset_name].append({'sentence':ex_text, 'constituent': constituent})
-                traverse_derivation(root_deriv, node, interesting_ex, interesting_types, hapax_ex, hapax_types, preterminals,
-                                    lex, depth, ex_text, dataset_name, visited)
+                traverse_derivation(node, interesting_ex, interesting_types, hapax_ex, hapax_types, preterminals,
+                                    lex, depth, ex_text, dataset_name, lattice, tokens, visited)
 
-def find_constituent(node, start, end):
-    constituent_str = ""
-    for i,t in enumerate(node.terminals()):
-        if i >= start and i < end:
-            constituent_str += t.form + " "
-    return constituent_str.strip()
-# terminals = None
-# lattice = None
-# char_spans = {}
-# if len(item['results']) > 0:
-#     terminals = item.result(0).derivation().terminals()
-# if (item['p-input']):
-#     lattice = YYTokenLattice.from_string(item['p-input'])
-# if lattice and terminals:
-#     for i, t in enumerate(terminals):
-#         this_gold.append(str(lextypes.get(t.parent.entity, "None_label")))
-#         terminal_span = extract_span(t)
-#         tokens = find_corresponding_toks(lattice.tokens, terminal_span)
-#         words.append(t.form)
-#         char_spans[str(terminal_span)] = []
-#         for tok in tokens:
-#             char_spans[str(terminal_span)].append({'terminal-form': t.form, 'token-form': tok.form,
-#                                                    'start': tok.lnk.data[0],
-#                                                    'end': tok.lnk.data[1]})
-
+def find_constituent(lattice, start, end, ex_text):
+    return ex_text[lattice.tokens[start].lnk.data[0]:lattice.tokens[end-1].lnk.data[1]]
 
 def collect_examples(data_dir, significant, hapax, lex, depth):
     significant_examples = {'lexrule': {}, 'constr': {}, 'lextype': {}}
@@ -73,13 +50,23 @@ def collect_examples(data_dir, significant, hapax, lex, depth):
         items = list(db.processed_items())
         for response in items:
             if len(response['results']) > 0:
-                tok_lattice = YYTokenLattice.from_string(response['p-input'])
+                #if 'they fight for better pay' in response['i-input']:
+                #    print(5)
+                lattice = YYTokenLattice.from_string(response['p-input'])
                 derivation_str = response['results'][0]['derivation']
                 deriv = derivation.from_string(derivation_str)
+                tokens = get_tok_list(deriv)
                 preterminals = set([pt.entity for pt in deriv.preterminals()])
-                traverse_derivation(deriv, deriv, significant_examples, significant,  hapax_examples, hapax,
-                                    preterminals, lex, depth, response['i-input'], dataset)
+                traverse_derivation(deriv, significant_examples, significant,  hapax_examples, hapax,
+                                    preterminals, lex, depth, response['i-input'], dataset, lattice, tokens)
     return significant_examples, hapax_examples
+
+def get_tok_list(node):
+    toks = []
+    for t in node.terminals():
+        for tok in t.tokens:
+            toks.append(tok)
+    return toks
 
 def find_corresponding_toks(toks, terminal_span):
     tokens = []
@@ -89,18 +76,6 @@ def find_corresponding_toks(toks, terminal_span):
         if tok.lnk.data[1] > terminal_span[1]:
             return tokens
     return tokens
-
-def extract_span(terminal):
-    str_tok = terminal.tokens[0][1]
-    from_match = re.search(r'\+FROM\s+\\"(\d+)\\"', str_tok)
-    to_match = re.search(r'\+TO\s+\\"(\d+)\\"', str_tok)
-
-    if from_match and to_match:
-        from_value = int(from_match.group(1))
-        to_value = int(to_match.group(1))
-        return from_value, to_value
-    else:
-        return None
 
 
 if __name__ == '__main__':
