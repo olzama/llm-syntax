@@ -44,7 +44,7 @@ def find_significant_constr(normalized_freq, threshold_percentile=80):
 
 def find_hapax_constr(raw_counts, infrequent_threshold=2):
     # Create a list for constructions that are used in one set and not the other
-    special_cases = {'constr': [], 'lexrule': [], 'lextype': []}
+    special_cases = {'constr': {}, 'lexrule': {}, 'lextype': {}}
     for attribute in ['constr', 'lexrule', 'lextype']:
         # Create a list of all frequencies across all models for each construction
         all_frequencies = {}
@@ -55,7 +55,7 @@ def find_hapax_constr(raw_counts, infrequent_threshold=2):
                     all_frequencies[constr_name].append(raw_counts[attribute][model][constr_name])
         # Gather special cases where constructions are used in one group but not the other
         find_hapax_mismatch(all_frequencies, attribute, infrequent_threshold, raw_counts, special_cases)
-    write_out_special_cases(infrequent_threshold, special_cases)
+    #write_out_special_cases(infrequent_threshold, special_cases)
     return special_cases
 
 
@@ -70,8 +70,9 @@ def find_hapax_mismatch(all_frequencies, attribute, infrequent_threshold, raw_co
         machine_infrequent = np.all(machine_freq < infrequent_threshold)  # All counts in machine are < 2
         # Ensure one group has low counts (less than 2) and the other has high counts (greater than or equal to 2)
         if (human_infrequent and not machine_infrequent) or (machine_infrequent and not human_infrequent):  # Human is infrequent, machine is frequent
-            special_cases[attribute].append(
-                {'type': constr_name, 'human count': int(human_freq.sum()), 'llm count': int(machine_freq.sum())})
+            if constr_name not in special_cases[attribute]:
+                special_cases[attribute][constr_name] = {}
+            special_cases[attribute][constr_name] = {'human count': int(human_freq.sum()), 'llm count': int(machine_freq.sum())}
 
 def compare_frequencies(attribute, constructions, normalized_freq, p_values, significant_constructions, k):
     # Compare frequencies for frequent constructions
@@ -145,10 +146,7 @@ if __name__ == '__main__':
         model_frequencies = json.load(f)
     normalized_freq = normalize_by_constr_count(model_frequencies)
     ascending_norm_freq, descending_norm_freq = sort_normalized_data(normalized_freq)
-
-
     #machine_datasets = list(set(normalized_freq['constr'].keys())-set(human_datasets))
-
     #visualize_freq(descending_norm_freq, human_datasets, 'constr', 'constr_boxplot.png')
     #for model in machine_datasets:
     #    to_compare = [model, 'original', 'wikipedia', 'wsj']

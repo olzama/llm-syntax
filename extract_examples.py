@@ -32,9 +32,14 @@ def traverse_derivation(deriv, interesting_ex, interesting_types, hapax_ex, hapa
                     if not dataset_name in interesting_ex[relevant_dict][type]:
                         interesting_ex[relevant_dict][type][dataset_name] = []
                     constituent = find_constituent(lattice, node.start, node.end, ex_text)
-                    if not constituent:
-                        print(5)
                     interesting_ex[relevant_dict][type][dataset_name].append({'sentence':ex_text, 'constituent': constituent})
+                if type in hapax_types[relevant_dict]:
+                    if not type in hapax_ex[relevant_dict]:
+                        hapax_ex[relevant_dict][type] = {}
+                    if not dataset_name in hapax_ex[relevant_dict][type]:
+                        hapax_ex[relevant_dict][type][dataset_name] = []
+                    constituent = find_constituent(lattice, node.start, node.end, ex_text)
+                    hapax_ex[relevant_dict][type][dataset_name].append({'sentence':ex_text, 'constituent': constituent})
                 traverse_derivation(node, interesting_ex, interesting_types, hapax_ex, hapax_types, preterminals,
                                     lex, depth, ex_text, dataset_name, lattice, tokens, visited)
 
@@ -50,8 +55,6 @@ def collect_examples(data_dir, significant, hapax, lex, depth):
         items = list(db.processed_items())
         for response in items:
             if len(response['results']) > 0:
-                #if 'they fight for better pay' in response['i-input']:
-                #    print(5)
                 lattice = YYTokenLattice.from_string(response['p-input'])
                 derivation_str = response['results'][0]['derivation']
                 deriv = derivation.from_string(derivation_str)
@@ -88,4 +91,7 @@ if __name__ == '__main__':
     with open('/mnt/kesha/llm-syntax/analysis/constructions/hapax_constr.json', 'r') as f:
         hapax = json.load(f)
     significant_examples, hapax_examples = collect_examples(data_dir, significant, hapax, lex, 1)
-    print(5)
+    with open('/mnt/kesha/llm-syntax/analysis/constructions/significant_examples.json', 'w', encoding='utf8') as f:
+        json.dump(significant_examples, f, ensure_ascii=False)
+    with open('/mnt/kesha/llm-syntax/analysis/constructions/hapax_examples.json', 'w', encoding='utf8') as f:
+        json.dump(hapax_examples, f, ensure_ascii=False)

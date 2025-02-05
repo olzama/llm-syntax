@@ -59,7 +59,7 @@ def freq_counts_by_model(freq_by_model, model1, model2, model3, model4, start, e
         df.plot(kind='scatter', x=rule_type, y=model4, ax=ax, label=model4, zorder=1, color='yellow', s=20)
         plt.title("Comparison of {} Frequencies".format(rule_type))
         plt.xlabel(rule_type)
-        plt.ylabel("Frequency (Normalized by dataset size)")
+        plt.ylabel("Frequency (Normalized)")
         plt.xticks(rotation=90)
         plt.legend(title="{} vs. {}, {}, and {}".format(model1, model2, model3, model4))
         plt.tight_layout()

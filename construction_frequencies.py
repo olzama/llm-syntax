@@ -7,7 +7,14 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 from supertypes import get_n_supertypes, populate_type_defs
 from count_constructions import collect_types_multidir
-from util import compute_cosine, print_cosine_similarities, serialize_dict, normalize_by_constr_count, freq_counts_by_model
+from util import (compute_cosine, print_cosine_similarities, serialize_dict, normalize_by_constr_count,
+                  sort_normalized_data, freq_counts_by_model)
+from erg import types2defs
+
+ALL_HUMAN_AUTHORED = ["original", "wikipedia", "wsj"]
+HUMAN_NYT = ["original"]
+LLM_GENERATED = ['falcon_07', 'llama_07', 'llama_13', 'llama_30', 'llama_65', 'mistral_07']
+LLM_NO_FALCON = ['llama_07', 'llama_13', 'llama_30', 'llama_65', 'mistral_07']
 
 
 dataset_sizes = {'original':26102,'falcon_07':27769, 'llama_07':37825, 'llama_13':37800,'llama_30':37568,
@@ -97,7 +104,22 @@ def normalize_by_num_sen(freq_by_model):
                                                                       key=lambda item: (item[1], item[0]), reverse=False)}
     return reverse_freq
 
-def add_dataset(frequencies, new_dataset, dataset_name):
+def separate_dataset(all_datasets, dataset_name):
+    dataset = {'constr': {}, 'lexrule': {}, 'lextype': {}}
+    for rule_type in all_datasets:
+        for dt in all_datasets[rule_type]:
+            if dt == dataset_name:
+                for rule in all_datasets[rule_type][dt]:
+                    dataset[rule_type][rule] = all_datasets[rule_type][dt][rule]
+    return dataset
+
+def readd_dataset(frequencies, new_dataset, dataset_name):
+    for rule_type in frequencies:
+        frequencies[rule_type][dataset_name] = {}
+        for rule in new_dataset[rule_type]:
+            frequencies[rule_type][dataset_name][rule] = new_dataset[rule_type][rule]
+
+def add_new_dataset(frequencies, new_dataset, dataset_name):
     for rule_type in frequencies:
         frequencies[rule_type][dataset_name] = {}
         for rule in new_dataset[rule_type]:
@@ -109,8 +131,8 @@ def add_dataset(frequencies, new_dataset, dataset_name):
             if rule not in frequencies[rule_type][dataset_name]:
                 frequencies[rule_type][dataset_name][rule] = 0
 
-def visualize_counts(frequencies):
-    reverse_frequencies = normalize_by_num_sen(frequencies)
+def visualize_counts(frequencies, reverse_frequencies):
+    #reverse_frequencies = normalize_by_num_sen(frequencies)
     # only_in_original, not_in_original, only_in_original_per_model = exclusive_members(frequencies)
     human_authored = ['original', 'wikipedia', 'wsj']
     start, end = 0, 50
@@ -144,6 +166,16 @@ def combine_types(data, relevant_keys):
             for constr, count in constructions.items():
                 combined_data[dataset_name][constr] += count  # Add count to the corresponding dataset and constr
     combined_data = {dataset: dict(constrs) for dataset, constrs in combined_data.items()}
+    return combined_data
+
+def combine_datasets(data, dataset_names, new_name):
+    combined_data = {'lexrule': {new_name: {}}, 'constr': {new_name: {}}, 'lextype': {new_name: {}}}
+    for dataset_name in dataset_names:
+        for rule_type in data:
+            for rule, freq in data[rule_type][dataset_name].items():
+                if rule not in combined_data[rule_type][new_name]:
+                    combined_data[rule_type][new_name][rule] = 0
+                combined_data[rule_type][new_name][rule] += freq
     return combined_data
 
 def compare_with_other_datasets(selected_dataset, cosine_similarities):
@@ -222,14 +254,43 @@ if __name__ == '__main__':
     data_dir = sys.argv[1]
     erg_dir = sys.argv[2]
     lex = populate_type_defs(erg_dir)
-    frequencies = read_freq(data_dir, lex, 0)
-    wikipedia = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wikipedia', lex, 1)
-    wsj = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wsj', lex, 1)
-    add_dataset(frequencies, wikipedia, 'wikipedia')
-    add_dataset(frequencies, wsj, 'wsj')
-    with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'w', encoding='utf8') as f:
-        json.dump(frequencies, f)
-    #visualize_counts(frequencies)
+    #frequencies = read_freq(data_dir, lex, 0)
+    #wikipedia = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wikipedia', lex, 1)
+    #wsj = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wsj', lex, 1)
+    #add_new_dataset(frequencies, wikipedia, 'wikipedia')
+    #add_new_dataset(frequencies, wsj, 'wsj')
+    #with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'w', encoding='utf8') as f:
+    #    json.dump(frequencies, f)
+    with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'r') as f:
+        all_data = json.load(f)
+    frequencies = combine_datasets(all_data, LLM_GENERATED, 'llm')
+    nyt_human = separate_dataset(all_data, 'original')
+    wsj = separate_dataset(all_data, 'wsj')
+    wikipedia = separate_dataset(all_data, 'wikipedia')
+    readd_dataset(frequencies, nyt_human, 'original')
+    readd_dataset(frequencies, wsj, 'wsj')
+    readd_dataset(frequencies, wikipedia, 'wikipedia')
+    normalized_frequencies = normalize_by_constr_count(frequencies)
+    ascending_freq, descending_freq = sort_normalized_data(normalized_frequencies)
+    top_freq_constr_names = list(descending_freq['constr']['llm'].keys())[0:50]
+    bottom_constr_llm = list(ascending_freq['constr']['llm'].keys())[0:50]
+    bottom_constr_human = list(ascending_freq['constr']['original'].keys())[0:50]
+    with open('analysis/constructions/top_constr_list.txt', 'w') as f:
+        for c in top_freq_constr_names:
+            f.write(c+'\n')
+    with open('analysis/constructions/bottom_constr_llm_list.txt', 'w') as f:
+        for c in bottom_constr_llm:
+            f.write(c+'\n')
+    with open('analysis/constructions/bottom_constr_human_list.txt', 'w') as f:
+        for c in bottom_constr_human:
+            f.write(c+'\n')
+    freq_counts_by_model(descending_freq, 'llm', 'original', 'wsj', 'wikipedia', 0,
+                         50, "Top frequencies", reverse=True)
+    freq_counts_by_model(ascending_freq, 'llm', 'original', 'wsj', 'wikipedia', 0,
+                         50, "Bottom LLM frequencies", reverse=True)
+    freq_counts_by_model(ascending_freq,'original', 'llm','wsj', 'wikipedia', 0,
+                         50, "Bottom human frequencies", reverse=True)
+    #visualize_counts(descending_freq, ascending_freq)
     # all_data = combine_types(frequencies, ['constr', 'lexrule', 'lextype'])
     # no_lextype = combine_types(frequencies, ['constr', 'lexrule'])
     # only_syntactic = combine_types(frequencies, ['constr'])
