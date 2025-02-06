@@ -2,6 +2,7 @@ import sys, os
 import re
 from delphin import tdl
 from copy import copy, deepcopy
+import numpy as np
 
 def get_n_supertypes(lex, type_name, n):
     # Helper function to recursively retrieve supertypes
@@ -32,21 +33,41 @@ def get_n_supertypes(lex, type_name, n):
     return depth_dict
 
 def populate_type_defs(directory):
-    global lex
-    # Initialize an empty dictionary to store the lexicon
     lex = {}
+    constr_types = {'syntax': [], 'lexrule': [], 'lextype': []}
     # Iterate through all files in the directory with the .tdl extension
     for filename in os.listdir(directory):
         if filename.endswith('.tdl'):
             file_path = os.path.join(directory, filename)
             # Parse the TDL file
             for event, obj, lineno in tdl.iterparse(file_path):
-                if event == 'TypeDefinition':
+                if event == 'TypeDefinition' or event == 'LexicalRuleDefinition':
                     # Add the object to the lexicon
                     lex[obj.identifier] = obj
+                    if filename in ['constructions.tdl', 'letypes.tdl', 'lexrinst.tdl', 'inflr.tdl', 'lexrinst-tok.tdl',
+                                    'lextypes.tdl', 'auxverbs.tdl', 'ple.tdl', 'gle.tdl', 'gle-gen.tdl']:
+                        if obj.identifier.endswith('_c'):
+                            constr_types['syntax'].append(obj.identifier)
+                        if obj.identifier.endswith('lr'):
+                            constr_types['lexrule'].append(obj.identifier)
+                        if obj.identifier.endswith('_le'):
+                            constr_types['lextype'].append(obj.identifier)
     # sort the lexicon by type name
     lex = dict(sorted(lex.items()))
-    return lex
+    return lex, constr_types
+
+
+def read_lexicon(lexicon_files):
+    lex = {}
+    for lexicon_file in lexicon_files:
+        for event, obj, lineno in tdl.iterparse(lexicon_file):
+            if event == 'TypeDefinition':
+                if str(obj.supertypes[0]) not in lex:
+                    lex[str(obj.supertypes[0])] = []
+                lex[str(obj.supertypes[0])].append(obj.identifier)
+    sorted_lex = {key: sorted(value) for key, value in sorted(lex.items(),
+                                                              key=lambda item: (len(item[1]), item[0]), reverse=True)}
+    return sorted_lex
 
 
 def dict_to_latex_table(data, include):
@@ -95,19 +116,25 @@ def types2defs(grammar_dir):
                     mapping[obj.identifier] = {'def': friendly_def, 'ex': example}
     return mapping
 
-def lexical_types(erg_dir):
-    high_membership = {}
-    low_membership = {}
-    return high_membership, low_membership
+def lexical_types(lexicon):
+    lengths = [len(value) for value in lexicon.values()]
+    # Set thresholds (for example, mean +/- 1 standard deviation)
+    high_threshold = np.percentile(lengths, 90)
+    high_membership = { k:v for k,v in lexicon.items() if len(v) > high_threshold }
+    low_membership = { k:v for k,v in lexicon.items() if len(v) <= high_threshold and len(v) > 1 }
+    singletons = { k:v for k,v in lexicon.items() if len(v) == 1 }
+    return high_membership, low_membership, singletons
 
 if __name__ == '__main__':
     erg_dir = sys.argv[1]
-    mapping = types2defs(erg_dir)
-    with open('/mnt/kesha/llm-syntax/analysis/constructions/top_constr_list.txt', 'r') as f:
-        include = [ln.strip() for ln in f.readlines()]
-    latex_table = dict_to_latex_table(mapping, include)
-    with open('/mnt/kesha/llm-syntax/analysis/latex/appendix-erg.txt', 'w') as f:
-        f.write(latex_table + '\n')
+    lexicon = read_lexicon(erg_dir + '/lexicon.tdl')
+    print(5)
+    #mapping = types2defs(erg_dir)
+    #with open('/mnt/kesha/llm-syntax/analysis/constructions/top_constr_list.txt', 'r') as f:
+    #    include = [ln.strip() for ln in f.readlines()]
+    #latex_table = dict_to_latex_table(mapping, include)
+    #with open('/mnt/kesha/llm-syntax/analysis/latex/appendix-erg.txt', 'w') as f:
+    #    f.write(latex_table + '\n')
     # directory = '/home/olga/delphin/erg/trunk'
     # type_name = 'pp_-_i-dir-novmd_le'  # Replace with the type you're interested in
     # lex = populate_type_defs(directory)

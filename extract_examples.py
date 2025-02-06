@@ -85,7 +85,7 @@ if __name__ == '__main__':
     data_dir = sys.argv[1]
     erg_dir = sys.argv[2]
     print("Reading in the ERG lexicon...")
-    lex = populate_type_defs(erg_dir)
+    lex,constrs = populate_type_defs(erg_dir)
     with open('/mnt/kesha/llm-syntax/analysis/constructions/significant_constr.json', 'r') as f:
         significant = json.load(f)
     with open('/mnt/kesha/llm-syntax/analysis/constructions/hapax_constr.json', 'r') as f:

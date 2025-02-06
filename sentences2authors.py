@@ -64,7 +64,7 @@ def map_sen2authors(data_dir, sen2authors, only_these_authors, depth=1):
 if __name__ == '__main__':
     data_dir = sys.argv[1]
     erg_dir = sys.argv[2]
-    lex = populate_type_defs(erg_dir)
+    lex, constrs = populate_type_defs(erg_dir)
     #small_db = create_database_subset(data_dir, 'small_db', data_dir + '/relations')
     with open(sys.argv[3], 'r') as sen2authors_file:
         sen2authors = json.load(sen2authors_file)

@@ -9,7 +9,7 @@ from erg import get_n_supertypes, populate_type_defs
 from count_constructions import collect_types_multidir
 from util import (compute_cosine, print_cosine_similarities, serialize_dict, normalize_by_constr_count,
                   sort_normalized_data, freq_counts_by_model)
-from erg import types2defs
+from erg import types2defs, read_lexicon, lexical_types
 
 ALL_HUMAN_AUTHORED = ["original", "wikipedia", "wsj"]
 HUMAN_NYT = ["original"]
@@ -113,7 +113,7 @@ def separate_dataset(all_datasets, dataset_name):
                     dataset[rule_type][rule] = all_datasets[rule_type][dt][rule]
     return dataset
 
-def readd_dataset(frequencies, new_dataset, dataset_name):
+def read_dataset(frequencies, new_dataset, dataset_name):
     for rule_type in frequencies:
         frequencies[rule_type][dataset_name] = {}
         for rule in new_dataset[rule_type]:
@@ -253,7 +253,7 @@ def report_comparison(my_dataset, machine_datasets, human_datasets, cosines):
 if __name__ == '__main__':
     data_dir = sys.argv[1]
     erg_dir = sys.argv[2]
-    lex = populate_type_defs(erg_dir)
+    lex, constrs = populate_type_defs(erg_dir)
     #frequencies = read_freq(data_dir, lex, 0)
     #wikipedia = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wikipedia', lex, 1)
     #wsj = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wsj', lex, 1)
@@ -267,29 +267,34 @@ if __name__ == '__main__':
     nyt_human = separate_dataset(all_data, 'original')
     wsj = separate_dataset(all_data, 'wsj')
     wikipedia = separate_dataset(all_data, 'wikipedia')
-    readd_dataset(frequencies, nyt_human, 'original')
-    readd_dataset(frequencies, wsj, 'wsj')
-    readd_dataset(frequencies, wikipedia, 'wikipedia')
+    read_dataset(frequencies, nyt_human, 'original')
+    read_dataset(frequencies, wsj, 'wsj')
+    read_dataset(frequencies, wikipedia, 'wikipedia')
     normalized_frequencies = normalize_by_constr_count(frequencies)
     ascending_freq, descending_freq = sort_normalized_data(normalized_frequencies)
-    top_freq_constr_names = list(descending_freq['constr']['llm'].keys())[0:50]
-    bottom_constr_llm = list(ascending_freq['constr']['llm'].keys())[0:50]
-    bottom_constr_human = list(ascending_freq['constr']['original'].keys())[0:50]
-    with open('analysis/constructions/top_constr_list.txt', 'w') as f:
-        for c in top_freq_constr_names:
-            f.write(c+'\n')
-    with open('analysis/constructions/bottom_constr_llm_list.txt', 'w') as f:
-        for c in bottom_constr_llm:
-            f.write(c+'\n')
-    with open('analysis/constructions/bottom_constr_human_list.txt', 'w') as f:
-        for c in bottom_constr_human:
-            f.write(c+'\n')
-    freq_counts_by_model(descending_freq, 'llm', 'original', 'wsj', 'wikipedia', 0,
-                         50, "Top frequencies", reverse=True)
-    freq_counts_by_model(ascending_freq, 'llm', 'original', 'wsj', 'wikipedia', 0,
-                         50, "Bottom LLM frequencies", reverse=True)
-    freq_counts_by_model(ascending_freq,'original', 'llm','wsj', 'wikipedia', 0,
-                         50, "Bottom human frequencies", reverse=True)
+    lexicon = read_lexicon([erg_dir + '/lexicon.tdl'])
+    high_membership, low_membership, singletons = lexical_types(lexicon)
+    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt.json', 'r', encoding='utf8') as f:
+        lexentries_nyt = json.load(f)
+    print(5)
+    # top_freq_constr_names = list(descending_freq['constr']['llm'].keys())[0:50]
+    # bottom_constr_llm = list(ascending_freq['constr']['llm'].keys())[0:50]
+    # bottom_constr_human = list(ascending_freq['constr']['original'].keys())[0:50]
+    # with open('analysis/constructions/top_constr_list.txt', 'w') as f:
+    #     for c in top_freq_constr_names:
+    #         f.write(c+'\n')
+    # with open('analysis/constructions/bottom_constr_llm_list.txt', 'w') as f:
+    #     for c in bottom_constr_llm:
+    #         f.write(c+'\n')
+    # with open('analysis/constructions/bottom_constr_human_list.txt', 'w') as f:
+    #     for c in bottom_constr_human:
+    #         f.write(c+'\n')
+    # freq_counts_by_model(descending_freq, 'llm', 'original', 'wsj', 'wikipedia', 0,
+    #                      50, "Top frequencies", reverse=True)
+    # freq_counts_by_model(ascending_freq, 'llm', 'original', 'wsj', 'wikipedia', 0,
+    #                      50, "Bottom LLM frequencies", reverse=True)
+    # freq_counts_by_model(ascending_freq,'original', 'llm','wsj', 'wikipedia', 0,
+    #                      50, "Bottom human frequencies", reverse=True)
     #visualize_counts(descending_freq, ascending_freq)
     # all_data = combine_types(frequencies, ['constr', 'lexrule', 'lextype'])
     # no_lextype = combine_types(frequencies, ['constr', 'lexrule'])
