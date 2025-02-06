@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
-from supertypes import get_n_supertypes, populate_type_defs
+from erg import get_n_supertypes, populate_type_defs
 from count_constructions import collect_types_multidir
 from util import (compute_cosine, print_cosine_similarities, serialize_dict, normalize_by_constr_count,
                   sort_normalized_data, freq_counts_by_model)

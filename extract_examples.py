@@ -3,7 +3,7 @@ import json
 import re
 from delphin import itsdb, derivation
 from delphin.tokens import YYTokenLattice
-from supertypes import get_n_supertypes, populate_type_defs
+from erg import get_n_supertypes, populate_type_defs
 
 def traverse_derivation(deriv, interesting_ex, interesting_types, hapax_ex, hapax_types, preterminals, lex,
                         depth, ex_text, dataset_name, lattice, tokens, visited=None):

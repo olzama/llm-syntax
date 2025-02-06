@@ -2,7 +2,7 @@ import sys, os
 import json
 from delphin import itsdb, derivation
 from count_constructions import traverse_derivation
-from supertypes import populate_type_defs
+from erg import populate_type_defs
 from construction_frequencies import combine_types
 from util import serialize_dict, generate_key, compute_cosine
 

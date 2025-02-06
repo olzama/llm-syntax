@@ -1,7 +1,7 @@
 import json
 import sys, os
 from delphin import itsdb, derivation
-from supertypes import get_n_supertypes, populate_type_defs
+from erg import get_n_supertypes, populate_type_defs
 from util import serialize_dict
 import random
 
