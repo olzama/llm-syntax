@@ -11,7 +11,7 @@ from util import (compute_cosine, print_cosine_similarities, serialize_dict, nor
                   sort_normalized_data, freq_counts_by_model)
 from erg import types2defs, read_lexicon, lexical_types
 
-ALL_HUMAN_AUTHORED = ["original", "wikipedia", "wsj"]
+ALL_HUMAN_AUTHORED = ["original", "wescience", "wsj"]
 HUMAN_NYT = ["original"]
 LLM_GENERATED = ['falcon_07', 'llama_07', 'llama_13', 'llama_30', 'llama_65', 'mistral_07']
 LLM_NO_FALCON = ['llama_07', 'llama_13', 'llama_30', 'llama_65', 'mistral_07']
@@ -178,6 +178,19 @@ def combine_datasets(data, dataset_names, new_name):
                 combined_data[rule_type][new_name][rule] += freq
     return combined_data
 
+def combine_lextype_datasets(data, dataset_names):
+    combined_data = {'high membership': {}, 'low membership': {}, 'singletons': {}}
+    for dataset_name in dataset_names:
+        for membership in data[dataset_name]:
+            for lextype in data[dataset_name][membership]:
+                if lextype not in combined_data[membership]:
+                    combined_data[membership][lextype] = set()
+                combined_data[membership][lextype].update(data[dataset_name][membership][lextype])
+    for membership in combined_data:
+        for lextype in combined_data[membership]:
+            combined_data[membership][lextype] = list(combined_data[membership][lextype])
+    return combined_data
+
 def compare_with_other_datasets(selected_dataset, cosine_similarities):
     selected_dataset_similarities = {}
     max_other_similarities = {}
@@ -249,11 +262,89 @@ def report_comparison(my_dataset, machine_datasets, human_datasets, cosines):
     print('All data:')
     print_cosine_similarities(cosines)
 
+def categorize_lexentries(lexentries_nyt_wsj_wiki, word2membership, freq_threshold, discard_top):
+    high_freq_lexentries = {}
+    low_freq_lexentries = {}
+    for model in lexentries_nyt_wsj_wiki:
+        high_freq_lexentries[model] = {'high membership': {}, 'low membership': {}, 'singletons': {}}
+        low_freq_lexentries[model] = {'high membership': {}, 'low membership': {}, 'singletons': {}}
+        threshold_n = len(lexentries_nyt_wsj_wiki[model])//freq_threshold
+        for lexentry in list(lexentries_nyt_wsj_wiki[model].keys())[0+discard_top:threshold_n]:
+            add_membership_to_freq(high_freq_lexentries, lexentry, model, word2membership)
+        for lexentry in list(lexentries_nyt_wsj_wiki[model].keys())[threshold_n:]:
+            add_membership_to_freq(low_freq_lexentries, lexentry, model, word2membership)
+    return high_freq_lexentries, low_freq_lexentries
+
+
+def add_membership_to_freq(lexentries, lexentry, model, word2membership):
+    if lexentry not in word2membership:
+        print("{} not in dictionary".format(lexentry))
+    else:
+        membership = word2membership[lexentry][0]
+        lt = word2membership[lexentry][1]
+        if membership == 'high':
+            if not lt in lexentries[model]['high membership']:
+                lexentries[model]['high membership'][lt] = []
+            lexentries[model]['high membership'][lt].append(lexentry)
+        elif membership == 'low':
+            if not lt in lexentries[model]['low membership']:
+                lexentries[model]['low membership'][lt] = []
+            lexentries[model]['low membership'][lt].append(lexentry)
+        elif membership == 'singleton':
+            if not lt in lexentries[model]['singletons']:
+                lexentries[model]['singletons'][lt] = []
+            lexentries[model]['singletons'][lt].append(lexentry)
+
+
+def map_word2membership(high_membership, low_membership, singletons):
+    word2membership = {}
+    for lextype in high_membership:
+        for word in high_membership[lextype]:
+            word2membership[word] = ('high', lextype)
+    for lextype in low_membership:
+        for word in low_membership[lextype]:
+            word2membership[word] = ('low', lextype)
+    for lextype in singletons:
+        for word in singletons[lextype]:
+            word2membership[word] = ('singleton', lextype)
+    return word2membership
+
+def find_absolute_diffs_lextype(model1, model2, model1_name, model2_name):
+    both = {'high membership': {}, 'low membership': {}, 'singletons': {}}
+    only_one = {model1_name: {'high membership': {}, 'low membership': {}, 'singletons': {}},
+                model2_name: {'high membership': {}, 'low membership': {}, 'singletons': {}}}
+    for membership in model1:
+        for lextype in model1[membership]:
+            if lextype in model2[membership]:
+                both[membership][lextype] = {}
+                both[membership][lextype]['different'] = {}
+                both[membership][lextype]['same'] = set(model1[membership][lextype]) & set(model2[membership][lextype])
+                both[membership][lextype]['different'][model1_name] = set(model1[membership][lextype]) - set(model2[membership][lextype])
+                both[membership][lextype]['different'][model2_name] = set(model2[membership][lextype]) - set(
+                    model1[membership][lextype])
+            else:
+                only_one[model1_name][membership][lextype] = set(model1[membership][lextype])
+    for membership in model2:
+        for lextype in model2[membership]:
+            if lextype not in model1[membership]:
+                only_one[model2_name][membership][lextype] = set(model2[membership][lextype])
+    for membership in both:
+        for lextype in both[membership]:
+            both[membership][lextype]['same'] = list(both[membership][lextype]['same'])
+            both[membership][lextype]['different'][model1_name] = list(both[membership][lextype]['different'][model1_name])
+            both[membership][lextype]['different'][model2_name] = list(both[membership][lextype]['different'][model2_name])
+    for model in only_one:
+        for membership in only_one[model]:
+            for lextype in only_one[model][membership]:
+                only_one[model][membership][lextype] = list(only_one[model][membership][lextype])
+    return both, only_one
+
+
 
 if __name__ == '__main__':
-    data_dir = sys.argv[1]
-    erg_dir = sys.argv[2]
-    lex, constrs = populate_type_defs(erg_dir)
+    #data_dir = sys.argv[1]
+    erg_dir = sys.argv[1]
+    #lex, constrs = populate_type_defs(erg_dir)
     #frequencies = read_freq(data_dir, lex, 0)
     #wikipedia = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wikipedia', lex, 1)
     #wsj = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wsj', lex, 1)
@@ -272,14 +363,20 @@ if __name__ == '__main__':
     read_dataset(frequencies, wikipedia, 'wikipedia')
     normalized_frequencies = normalize_by_constr_count(frequencies)
     ascending_freq, descending_freq = sort_normalized_data(normalized_frequencies)
-    lexicon = read_lexicon([erg_dir + '/lexicon.tdl'])
+    lexicon = read_lexicon([erg_dir + '/lexicon.tdl', erg_dir + '/ple.tdl', erg_dir + '/gle.tdl'])
     high_membership, low_membership, singletons = lexical_types(lexicon)
-    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt.json', 'r', encoding='utf8') as f:
+    word2membership = map_word2membership(high_membership, low_membership, singletons)
+    with open('analysis/frequencies-json/lexentries-nyt.json', 'r', encoding='utf8') as f:
         lexentries_nyt = json.load(f)
-    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt-wsj-wiki.json', 'r', encoding='utf8') as f:
-        lexentries_wsj_wiki = json.load(f)
-    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt-wsj-wiki-sample.json', 'r', encoding='utf8') as f:
-        lexentries_wsj_wiki_sample = json.load(f)
+    with open('analysis/frequencies-json/lexentries-nyt-wsj-wiki.json', 'r', encoding='utf8') as f:
+        lexentries_nyt_wsj_wiki = json.load(f)
+    high_freq_lexentries, low_freq_lexentries = categorize_lexentries(lexentries_nyt_wsj_wiki, word2membership,10,0)
+    high_freq_lexentries_llm = combine_lextype_datasets(high_freq_lexentries, ['llama_07'])
+    low_freq_lexentries_llm = combine_lextype_datasets(low_freq_lexentries, ['llama_07'])
+    high_freq_lexentries_human_all = combine_lextype_datasets(high_freq_lexentries, ALL_HUMAN_AUTHORED)
+    both_high_freq, only_one_high_freq = find_absolute_diffs_lextype(high_freq_lexentries_llm, high_freq_lexentries['original'], 'llm', 'nyt')
+    both_low_freq, only_one_low_freq = find_absolute_diffs_lextype(low_freq_lexentries_llm,
+                                                                     low_freq_lexentries['original'], 'llm', 'nyt')
     print(5)
     # top_freq_constr_names = list(descending_freq['constr']['llm'].keys())[0:50]
     # bottom_constr_llm = list(ascending_freq['constr']['llm'].keys())[0:50]
