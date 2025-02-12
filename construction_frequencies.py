@@ -295,7 +295,6 @@ def add_membership_to_freq(lexentries, lexentry, model, word2membership):
                 lexentries[model]['singletons'][lt] = []
             lexentries[model]['singletons'][lt].append(lexentry)
 
-
 def map_word2membership(high_membership, low_membership, singletons):
     word2membership = {}
     for lextype in high_membership:
@@ -339,11 +338,58 @@ def find_absolute_diffs_lextype(model1, model2, model1_name, model2_name):
                 only_one[model][membership][lextype] = list(only_one[model][membership][lextype])
     return both, only_one
 
+def compare_lexentries(data):
+    only_in_llm_d = {'all llms': {}}
+    only_in_human_d = {'not in any llm': {}}
+    llm_lexentries = {}
+    all_llms_lexentries = set()
+    human_lexentries = set()
+    for model in data:
+        if model in LLM_GENERATED:
+            llm_lexentries[model] = set()
+            for le in data[model]:
+                all_llms_lexentries.add(le)
+                llm_lexentries[model].add(le)
+        elif model in HUMAN_NYT:
+            for le in data[model]:
+                human_lexentries.add(le)
+    for model in data:
+        if model in LLM_GENERATED:
+            only_in_human_d[model] = {}
+            only_in_llm_d[model] = {}
+            for le in data[model]:
+                if not le in human_lexentries:
+                    only_in_llm_d[model][le] = data[model][le]
+                    if not le in only_in_llm_d['all llms']:
+                        only_in_llm_d['all llms'][le] = 0
+                    only_in_llm_d['all llms'][le] += data[model][le]
+        elif model in HUMAN_NYT:
+            for le in data[model]:
+                if not le in all_llms_lexentries:
+                    only_in_human_d['not in any llm'][le] = data[model][le]
+                for llm in llm_lexentries:
+                    if not le in llm_lexentries[llm]:
+                        only_in_human_d[llm][le] = data[model][le]
+    return only_in_llm_d, only_in_human_d
+
+def map2lt(data, word2lt):
+    mapping = {}
+    for model in data:
+        mapping[model] = {}
+        for le in data[model]:
+            if not le in word2lt:
+                print("{} not in dictionary".format(le))
+            else:
+                membership, lt = word2lt[le]
+                if not lt in mapping:
+                    mapping[model][lt] = []
+                mapping[model][lt].append(le)
+    return mapping
 
 
 if __name__ == '__main__':
-    #data_dir = sys.argv[1]
-    erg_dir = sys.argv[1]
+    data_dir = sys.argv[1]
+    erg_dir = sys.argv[2]
     #lex, constrs = populate_type_defs(erg_dir)
     #frequencies = read_freq(data_dir, lex, 0)
     #wikipedia = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wikipedia', lex, 1)
@@ -363,13 +409,17 @@ if __name__ == '__main__':
     read_dataset(frequencies, wikipedia, 'wikipedia')
     normalized_frequencies = normalize_by_constr_count(frequencies)
     ascending_freq, descending_freq = sort_normalized_data(normalized_frequencies)
-    lexicon = read_lexicon([erg_dir + '/lexicon.tdl', erg_dir + '/ple.tdl', erg_dir + '/gle.tdl'])
+    lexicon = read_lexicon([erg_dir + '/lexicon.tdl', erg_dir + '/ple.tdl', erg_dir + '/gle.tdl',erg_dir + '/lexicon-rbst.tdl'])
     high_membership, low_membership, singletons = lexical_types(lexicon)
     word2membership = map_word2membership(high_membership, low_membership, singletons)
-    with open('analysis/frequencies-json/lexentries-nyt.json', 'r', encoding='utf8') as f:
-        lexentries_nyt = json.load(f)
-    with open('analysis/frequencies-json/lexentries-nyt-wsj-wiki.json', 'r', encoding='utf8') as f:
+    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt-wsj-wiki-sample.json', 'r', encoding='utf8') as f:
         lexentries_nyt_wsj_wiki = json.load(f)
+    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-all-llm-sample-25K.json', 'r',
+              encoding='utf8') as f:
+        lexentries_all_llm_sample = json.load(f)
+    only_in_llm, only_in_human = compare_lexentries(lexentries_nyt_wsj_wiki)
+    only_in_llm_collective = set(list(lexentries_all_llm_sample.keys())) - set(list(lexentries_nyt_wsj_wiki['original'].keys()))
+    only_in_human_lt = map2lt(only_in_human, word2membership)
     high_freq_lexentries, low_freq_lexentries = categorize_lexentries(lexentries_nyt_wsj_wiki, word2membership,10,0)
     high_freq_lexentries_llm = combine_lextype_datasets(high_freq_lexentries, ['llama_07'])
     low_freq_lexentries_llm = combine_lextype_datasets(low_freq_lexentries, ['llama_07'])
@@ -377,6 +427,14 @@ if __name__ == '__main__':
     both_high_freq, only_one_high_freq = find_absolute_diffs_lextype(high_freq_lexentries_llm, high_freq_lexentries['original'], 'llm', 'nyt')
     both_low_freq, only_one_low_freq = find_absolute_diffs_lextype(low_freq_lexentries_llm,
                                                                      low_freq_lexentries['original'], 'llm', 'nyt')
+    with open('analysis/constructions/significant_examples.json', 'r') as f:
+        significant_examples = json.load(f)
+    with open('analysis/constructions/hapax_examples.json', 'r') as f:
+        hapax_examples = json.load(f)
+    with open('analysis/lextypes/only_one_high_freq.json', 'w', encoding='utf8') as f:
+        json.dump(only_one_high_freq, f, ensure_ascii=False)
+    with open('analysis/lextypes/only_one_low_freq.json', 'w', encoding='utf8') as f:
+        json.dump(only_one_low_freq, f, ensure_ascii=False)
     print(5)
     # top_freq_constr_names = list(descending_freq['constr']['llm'].keys())[0:50]
     # bottom_constr_llm = list(ascending_freq['constr']['llm'].keys())[0:50]

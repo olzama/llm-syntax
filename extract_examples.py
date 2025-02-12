@@ -3,7 +3,7 @@ import json
 import re
 from delphin import itsdb, derivation
 from delphin.tokens import YYTokenLattice
-from erg import get_n_supertypes, populate_type_defs
+from erg import get_n_supertypes, populate_type_defs, read_lexicon
 
 def traverse_derivation(deriv, interesting_ex, interesting_types, hapax_ex, hapax_types, preterminals, lex,
                         depth, ex_text, dataset_name, lattice, tokens, visited=None):
@@ -43,8 +43,27 @@ def traverse_derivation(deriv, interesting_ex, interesting_types, hapax_ex, hapa
                 traverse_derivation(node, interesting_ex, interesting_types, hapax_ex, hapax_types, preterminals,
                                     lex, depth, ex_text, dataset_name, lattice, tokens, visited)
 
+
 def find_constituent(lattice, start, end, ex_text):
     return ex_text[lattice.tokens[start].lnk.data[0]:lattice.tokens[end-1].lnk.data[1]]
+
+def collect_lextype_examples(data_dir, examples, hapax, lex, depth):
+    significant_examples = {}
+    hapax_examples = {}
+    for dataset in os.listdir(data_dir):
+        db = itsdb.TestSuite(os.path.join(data_dir, dataset))
+        print(f"Processing dataset {dataset}...")
+        items = list(db.processed_items())
+        for response in items:
+            if len(response['results']) > 0:
+                lattice = YYTokenLattice.from_string(response['p-input'])
+                derivation_str = response['results'][0]['derivation']
+                deriv = derivation.from_string(derivation_str)
+                tokens = get_tok_list(deriv)
+                preterminals = set([pt.entity for pt in deriv.preterminals()])
+
+    return significant_examples, hapax_examples
+
 
 def collect_examples(data_dir, significant, hapax, lex, depth):
     significant_examples = {'lexrule': {}, 'constr': {}, 'lextype': {}}
@@ -86,12 +105,16 @@ if __name__ == '__main__':
     erg_dir = sys.argv[2]
     print("Reading in the ERG lexicon...")
     lex,constrs = populate_type_defs(erg_dir)
-    with open('/mnt/kesha/llm-syntax/analysis/constructions/significant_constr.json', 'r') as f:
-        significant = json.load(f)
-    with open('/mnt/kesha/llm-syntax/analysis/constructions/hapax_constr.json', 'r') as f:
-        hapax = json.load(f)
-    significant_examples, hapax_examples = collect_examples(data_dir, significant, hapax, lex, 1)
-    with open('/mnt/kesha/llm-syntax/analysis/constructions/significant_examples.json', 'w', encoding='utf8') as f:
-        json.dump(significant_examples, f, ensure_ascii=False)
-    with open('/mnt/kesha/llm-syntax/analysis/constructions/hapax_examples.json', 'w', encoding='utf8') as f:
-        json.dump(hapax_examples, f, ensure_ascii=False)
+    with open('analysis/lextypes/only_one_high_freq.json', 'r') as f:
+        high_freq_lextypes = json.load(f)
+    examples = collect_lextype_examples(data_dir, high_freq_lextypes, lex, 1)
+
+    # with open('/mnt/kesha/llm-syntax/analysis/constructions/significant_constr.json', 'r') as f:
+    #     significant = json.load(f)
+    # with open('/mnt/kesha/llm-syntax/analysis/constructions/hapax_constr.json', 'r') as f:
+    #     hapax = json.load(f)
+    # significant_examples, hapax_examples = collect_examples(data_dir, significant, hapax, lex, 1)
+    # with open('/mnt/kesha/llm-syntax/analysis/constructions/significant_examples.json', 'w', encoding='utf8') as f:
+    #     json.dump(significant_examples, f, ensure_ascii=False)
+    # with open('/mnt/kesha/llm-syntax/analysis/constructions/hapax_examples.json', 'w', encoding='utf8') as f:
+    #     json.dump(hapax_examples, f, ensure_ascii=False)
