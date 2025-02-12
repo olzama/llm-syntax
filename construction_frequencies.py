@@ -276,6 +276,10 @@ if __name__ == '__main__':
     high_membership, low_membership, singletons = lexical_types(lexicon)
     with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt.json', 'r', encoding='utf8') as f:
         lexentries_nyt = json.load(f)
+    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt-wsj-wiki.json', 'r', encoding='utf8') as f:
+        lexentries_wsj_wiki = json.load(f)
+    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt-wsj-wiki-sample.json', 'r', encoding='utf8') as f:
+        lexentries_wsj_wiki_sample = json.load(f)
     print(5)
     # top_freq_constr_names = list(descending_freq['constr']['llm'].keys())[0:50]
     # bottom_constr_llm = list(ascending_freq['constr']['llm'].keys())[0:50]
