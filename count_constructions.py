@@ -84,24 +84,23 @@ if __name__ == '__main__':
     lex,constrs = populate_type_defs(erg_dir)
     types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
     lexentries = {}
-    collect_types_multidir(data_dir, lex, lexentries, 1, 4000)
-    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-all-llm-sample-25K.json', 'w', encoding='utf8') as f:
-        json.dump(lexentries, f, ensure_ascii=False)
-    # for model in os.listdir(data_dir):
-    #     lexentries[model] = {}
-    #     print("Counting constructions in {}...".format(model))
-    #     dataset_path = os.path.join(data_dir, model)
-    #     if model in ['wsj']:
-    #         model_types = collect_types_multidir(dataset_path, lex, lexentries[model], 1, 100)
-    #     elif model in ['wescience']:
-    #         model_types = collect_types_multidir(dataset_path, lex, lexentries[model], 1, 500)
-    #     else:
-    #         model_types = collect_types(dataset_path, lex, lexentries[model],1, 25000)
-    #     for ctype in types:
-    #         types[ctype][model] = model_types[ctype]
-    # #with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/frequencies-models-150.json', 'w', encoding='utf8') as f:
-    # #    json.dump(types, f, ensure_ascii=False)
-    # for model in types['constr'].keys():
+    for model in os.listdir(data_dir):
+        lexentries[model] = {}
+        print("Counting constructions in {}...".format(model))
+        dataset_path = os.path.join(data_dir, model)
+        if model in ['wsj']:
+            continue
+        elif model in ['wescience']:
+            continue
+        elif model in ['original']:
+            model_types = collect_types(dataset_path, lex, lexentries[model],1)
+        else:
+            model_types = collect_types(dataset_path, lex, lexentries[model],1, 4300)
+        for ctype in types:
+            types[ctype][model] = model_types[ctype]
+    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/frequencies-4K.json', 'w', encoding='utf8') as f:
+       json.dump(types, f, ensure_ascii=False)
+    #for model in types['constr'].keys():
     #     lexentries[model] = {k: v for k, v in sorted(lexentries[model].items(), key=lambda item: (item[1], item[0]), reverse=True)}
     # with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt-wsj-wiki-sample.json', 'w', encoding='utf8') as f:
     #     json.dump(lexentries, f, ensure_ascii=False)

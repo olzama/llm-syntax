@@ -1,9 +1,13 @@
 import sys, os
 import json
 import re
+import itertools
 from delphin import itsdb, derivation
 from delphin.tokens import YYTokenLattice
 from erg import get_n_supertypes, populate_type_defs, read_lexicon
+HUMAN_NYT = ["original"]
+LLM_GENERATED = ['falcon_07', 'llama_07', 'llama_13', 'llama_30', 'llama_65', 'mistral_07']
+LLM_NO_FALCON = ['llama_07', 'llama_13', 'llama_30', 'llama_65', 'mistral_07']
 
 def traverse_derivation(deriv, interesting_ex, interesting_types, hapax_ex, hapax_types, preterminals, lex,
                         depth, ex_text, dataset_name, lattice, tokens, visited=None):
@@ -47,22 +51,53 @@ def traverse_derivation(deriv, interesting_ex, interesting_types, hapax_ex, hapa
 def find_constituent(lattice, start, end, ex_text):
     return ex_text[lattice.tokens[start].lnk.data[0]:lattice.tokens[end-1].lnk.data[1]]
 
-def collect_lextype_examples(data_dir, examples, hapax, lex, depth):
+def collect_lextype_percentile_examples(data_dir, examples):
     significant_examples = {}
-    hapax_examples = {}
+    of_interest = set()
+    for percentile in examples:
+        of_interest.update(examples[percentile])
     for dataset in os.listdir(data_dir):
+        significant_examples[dataset] = {}
         db = itsdb.TestSuite(os.path.join(data_dir, dataset))
         print(f"Processing dataset {dataset}...")
         items = list(db.processed_items())
         for response in items:
             if len(response['results']) > 0:
-                lattice = YYTokenLattice.from_string(response['p-input'])
                 derivation_str = response['results'][0]['derivation']
                 deriv = derivation.from_string(derivation_str)
-                tokens = get_tok_list(deriv)
-                preterminals = set([pt.entity for pt in deriv.preterminals()])
+                preterminals = [pt for pt in deriv.preterminals()]
+                for pt in preterminals:
+                    if pt.parent.entity in of_interest:
+                        if not pt.parent.entity in significant_examples[dataset]:
+                            significant_examples[dataset][pt.parent.entity] = []
+                        significant_examples[dataset][pt.parent.entity].append(response['i-input'])
+    return significant_examples
 
-    return significant_examples, hapax_examples
+
+def collect_lexentry_examples(data_dir, examples):
+    significant_examples = {}
+    of_interest = set(list(examples['llm']['high membership'].keys()) + list(examples['llm']['low membership'].keys()) +
+                      list(examples['llm']['singletons'].keys()) + list(examples['nyt']['high membership'].keys())
+                      + list(examples['nyt']['low membership'].keys()) + list(examples['nyt']['singletons'].keys()))
+    of_interest = set(itertools.chain.from_iterable(list(examples['llm']['high membership'].values()) + list(examples['llm']['low membership'].values()) +
+                      list(examples['llm']['singletons'].values()) + list(examples['nyt']['high membership'].values())
+                      + list(examples['nyt']['low membership'].values()) + list(examples['nyt']['singletons'].values())))
+    for dataset in os.listdir(data_dir):
+        significant_examples[dataset] = {}
+        db = itsdb.TestSuite(os.path.join(data_dir, dataset))
+        print(f"Processing dataset {dataset}...")
+        items = list(db.processed_items())
+        for response in items:
+            if len(response['results']) > 0:
+                derivation_str = response['results'][0]['derivation']
+                deriv = derivation.from_string(derivation_str)
+                preterminals = set([pt.entity for pt in deriv.preterminals()])
+                for pt in preterminals:
+                    if pt in of_interest:
+                        if not pt in significant_examples[dataset]:
+                            significant_examples[dataset][pt] = []
+                        significant_examples[dataset][pt].append(response['i-input'])
+    return significant_examples
 
 
 def collect_examples(data_dir, significant, hapax, lex, depth):
@@ -104,11 +139,18 @@ if __name__ == '__main__':
     data_dir = sys.argv[1]
     erg_dir = sys.argv[2]
     print("Reading in the ERG lexicon...")
-    lex,constrs = populate_type_defs(erg_dir)
-    with open('analysis/lextypes/only_one_high_freq.json', 'r') as f:
-        high_freq_lextypes = json.load(f)
-    examples = collect_lextype_examples(data_dir, high_freq_lextypes, lex, 1)
+    #lex,constrs = populate_type_defs(erg_dir)
+    with open('analysis/lextypes/lextype_hum_by_percentile.json', 'r') as f:
+        hum_lextypes = json.load(f)
+    with open('analysis/lextypes/lextype_llm_by_percentile.json', 'r') as f:
+        llm_lextypes = json.load(f)
+    examples_lextype_hum = collect_lextype_percentile_examples(data_dir, hum_lextypes)
+    examples_lextype_llm = collect_lextype_percentile_examples(data_dir, llm_lextypes)
 
+    with open('analysis/lextypes/hum-lextype-percentile_examples.json', 'w', encoding='utf8') as f:
+        json.dump(examples_lextype_hum, f, ensure_ascii=False)
+    with open('analysis/lextypes/llm-lextype-percentile_examples.json', 'w', encoding='utf8') as f:
+        json.dump(examples_lextype_llm, f, ensure_ascii=False)
     # with open('/mnt/kesha/llm-syntax/analysis/constructions/significant_constr.json', 'r') as f:
     #     significant = json.load(f)
     # with open('/mnt/kesha/llm-syntax/analysis/constructions/hapax_constr.json', 'r') as f:

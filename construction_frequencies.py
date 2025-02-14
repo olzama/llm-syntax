@@ -20,21 +20,26 @@ LLM_NO_FALCON = ['llama_07', 'llama_13', 'llama_30', 'llama_65', 'mistral_07']
 dataset_sizes = {'original':26102,'falcon_07':27769, 'llama_07':37825, 'llama_13':37800,'llama_30':37568,
                  'llama_65':38107,'mistral_07':35086, 'wikipedia': 10726, 'wsj': 43043}
 
-def exclusive_members(freq_by_model):
-    original_constructions = set( [rule for rule in freq_by_model['constr']['original'].keys()
-                                   if freq_by_model['constr']['original'][rule] > 0 ])
-    other_models_constructions = {
-        model: set([rule for rule in freq_by_model['constr'][model].keys()
-                                   if freq_by_model['constr'][model][rule] > 0 ])
-        for model in freq_by_model['constr'] if model != 'original'
-    }
-    other_models_flattened = {item for s in list(other_models_constructions.values()) for item in s}
-    only_in_original = original_constructions - other_models_flattened
-    only_in_original_per_model = {}
-    not_in_original = other_models_flattened - original_constructions
-    for model in other_models_constructions:
-        only_in_original_per_model[model] = original_constructions - other_models_constructions[model]
-    return only_in_original, not_in_original, only_in_original_per_model
+def exclusive_members(freq, my_dataset, datasets_to_compare):
+    only_in_mine = {'constr': set(), 'lexrule': set(), 'lextype': set()}
+    only_in_other = {'constr': set(), 'lexrule': set(), 'lextype': set()}
+    mine_set = {'constr': set(), 'lexrule': set(), 'lextype': set()}
+    others_set = {'constr': set(), 'lexrule': set(), 'lextype': set()}
+    for rule_type in freq:
+        for model in freq[rule_type]:
+            if not model == my_dataset:
+                if model in datasets_to_compare:
+                    for rule in freq[rule_type][model]:
+                        if freq[rule_type][model][rule] > 0:
+                            others_set[rule_type].add(rule)
+            else:
+                for rule in freq[rule_type][model]:
+                    if freq[rule_type][model][rule] > 0:
+                        mine_set[rule_type].add(rule)
+    for rule_type in mine_set:
+        only_in_mine[rule_type] = mine_set[rule_type] - others_set[rule_type]
+        only_in_other[rule_type] = others_set[rule_type] - mine_set[rule_type]
+    return only_in_mine, only_in_other
 
 
 def read_freq(data_dir, lex, depth):
@@ -386,6 +391,36 @@ def map2lt(data, word2lt):
                 mapping[model][lt].append(le)
     return mapping
 
+def define_percentiles(sorted_frequencies):
+    values = list(sorted_frequencies.values())
+    # Define the percentiles
+    percentiles = [10, 25, 50, 75, 90]  # You can adjust this list based on your needs
+    # Calculate the percentile thresholds
+    percentile_thresholds = np.percentile(values, percentiles)
+    # Create segments based on the percentiles
+    segments = {}
+    for i, p in enumerate(percentiles):
+        lower_bound = percentile_thresholds[i - 1] if i > 0 else 0
+        upper_bound = percentile_thresholds[i]
+        segment = {k: v for k, v in sorted_frequencies.items() if lower_bound <= v < upper_bound}
+        segments[p] = segment
+    lt2seg = {}
+    for p in segments:
+        for lt in segments[p]:
+            lt2seg[lt] = p
+    return segments, lt2seg
+
+def analyze_lextypes_by_freq(norm_freq, lextypes, dataset):
+    segments, lt2seg = define_percentiles(norm_freq['lextype'][dataset])
+    by_seg = {}
+    for seg in segments:
+        by_seg[seg] = []
+    for lt in lextypes:
+        if not lt in norm_freq['lextype'][dataset]:
+            print(f"{lt} not in frequency data")
+        else:
+            by_seg[lt2seg[lt]].append(lt)
+    return by_seg
 
 if __name__ == '__main__':
     data_dir = sys.argv[1]
@@ -398,43 +433,69 @@ if __name__ == '__main__':
     #add_new_dataset(frequencies, wsj, 'wsj')
     #with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'w', encoding='utf8') as f:
     #    json.dump(frequencies, f)
-    with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'r') as f:
-        all_data = json.load(f)
+    with open('analysis/frequencies-json/frequencies-4K.json', 'r') as f:
+       all_data = json.load(f)
+    exclusive_hum, exclusive_llm = exclusive_members(all_data, 'original', LLM_GENERATED)
+    # for llm_name in LLM_GENERATED:
+    #     exlusive_hum, exclusive_llm = exclusive_members(all_data, 'original', [llm_name])
+    #     print(f"Exclusive to {llm_name}: {len(exclusive_llm['lextype'])}")
+    #     #for lt in exclusive_llm['lextype']:
+    #     #    print(lt)
+    #     print(f"Exclusive to human-authored: {len(exlusive_hum['lextype'])}")
+    #     #for lt in exlusive_hum['lextype']:
+    #     #    print(lt)
     frequencies = combine_datasets(all_data, LLM_GENERATED, 'llm')
     nyt_human = separate_dataset(all_data, 'original')
-    wsj = separate_dataset(all_data, 'wsj')
-    wikipedia = separate_dataset(all_data, 'wikipedia')
-    read_dataset(frequencies, nyt_human, 'original')
-    read_dataset(frequencies, wsj, 'wsj')
-    read_dataset(frequencies, wikipedia, 'wikipedia')
+    for rule_type in frequencies:
+        frequencies[rule_type]['original'] = nyt_human[rule_type]
+    #wsj = separate_dataset(all_data, 'wsj')
+    #wikipedia = separate_dataset(all_data, 'wikipedia')
+    #read_dataset(frequencies, nyt_human, 'original')
+    #read_dataset(frequencies, wsj, 'wsj')
+    #read_dataset(frequencies, wikipedia, 'wikipedia')
     normalized_frequencies = normalize_by_constr_count(frequencies)
     ascending_freq, descending_freq = sort_normalized_data(normalized_frequencies)
+    lextype_hum_by_percentile = analyze_lextypes_by_freq(descending_freq, exclusive_hum['lextype'], 'original')
+    lextype_llm_by_percentile = analyze_lextypes_by_freq(descending_freq, exclusive_llm['lextype'], 'llm')
+    with open ('analysis/lextypes/hum-lextype-percentile_examples.json', 'r') as f:
+        lextypes_be_percentile_hum_examples = json.load(f)
+    with open ('analysis/lextypes/llm-lextype-percentile_examples.json', 'r') as f:
+        lextypes_be_percentile_llm_examples = json.load(f)
+    # with open('analysis/lextypes/lextype_hum_by_percentile.json', 'w', encoding='utf8') as f:
+    #     json.dump(lextype_hum_by_percentile, f, ensure_ascii=False)
+    # with open('analysis/lextypes/lextype_llm_by_percentile.json', 'w', encoding='utf8') as f:
+    #     json.dump(lextype_llm_by_percentile, f, ensure_ascii=False)
     lexicon = read_lexicon([erg_dir + '/lexicon.tdl', erg_dir + '/ple.tdl', erg_dir + '/gle.tdl',erg_dir + '/lexicon-rbst.tdl'])
     high_membership, low_membership, singletons = lexical_types(lexicon)
     word2membership = map_word2membership(high_membership, low_membership, singletons)
-    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt-wsj-wiki-sample.json', 'r', encoding='utf8') as f:
-        lexentries_nyt_wsj_wiki = json.load(f)
-    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-all-llm-sample-25K.json', 'r',
-              encoding='utf8') as f:
-        lexentries_all_llm_sample = json.load(f)
-    only_in_llm, only_in_human = compare_lexentries(lexentries_nyt_wsj_wiki)
-    only_in_llm_collective = set(list(lexentries_all_llm_sample.keys())) - set(list(lexentries_nyt_wsj_wiki['original'].keys()))
-    only_in_human_lt = map2lt(only_in_human, word2membership)
-    high_freq_lexentries, low_freq_lexentries = categorize_lexentries(lexentries_nyt_wsj_wiki, word2membership,10,0)
-    high_freq_lexentries_llm = combine_lextype_datasets(high_freq_lexentries, ['llama_07'])
-    low_freq_lexentries_llm = combine_lextype_datasets(low_freq_lexentries, ['llama_07'])
-    high_freq_lexentries_human_all = combine_lextype_datasets(high_freq_lexentries, ALL_HUMAN_AUTHORED)
-    both_high_freq, only_one_high_freq = find_absolute_diffs_lextype(high_freq_lexentries_llm, high_freq_lexentries['original'], 'llm', 'nyt')
-    both_low_freq, only_one_low_freq = find_absolute_diffs_lextype(low_freq_lexentries_llm,
-                                                                     low_freq_lexentries['original'], 'llm', 'nyt')
-    with open('analysis/constructions/significant_examples.json', 'r') as f:
-        significant_examples = json.load(f)
-    with open('analysis/constructions/hapax_examples.json', 'r') as f:
-        hapax_examples = json.load(f)
-    with open('analysis/lextypes/only_one_high_freq.json', 'w', encoding='utf8') as f:
-        json.dump(only_one_high_freq, f, ensure_ascii=False)
-    with open('analysis/lextypes/only_one_low_freq.json', 'w', encoding='utf8') as f:
-        json.dump(only_one_low_freq, f, ensure_ascii=False)
+    # with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt-wsj-wiki-sample.json', 'r', encoding='utf8') as f:
+    #     lexentries_nyt_wsj_wiki = json.load(f)
+    # with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-all-llm-sample-25K.json', 'r',
+    #           encoding='utf8') as f:
+    #     lexentries_all_llm_sample = json.load(f)
+    #only_in_llm, only_in_human = compare_lexentries(lexentries_nyt_wsj_wiki)
+    #only_in_llm_collective = set(list(lexentries_all_llm_sample.keys())) - set(list(lexentries_nyt_wsj_wiki['original'].keys()))
+    #only_in_human_lt = map2lt(only_in_human, word2membership)
+    #only_in_llm_lt = map2lt(only_in_llm, word2membership)
+    #high_freq_lexentries, low_freq_lexentries = categorize_lexentries(lexentries_nyt_wsj_wiki, word2membership,10,0)
+    #high_freq_lexentries_llm = combine_lextype_datasets(high_freq_lexentries, ['llama_07'])
+    #low_freq_lexentries_llm = combine_lextype_datasets(low_freq_lexentries, ['llama_07'])
+    #high_freq_lexentries_human_all = combine_lextype_datasets(high_freq_lexentries, ALL_HUMAN_AUTHORED)
+    #both_high_freq, only_one_high_freq = find_absolute_diffs_lextype(high_freq_lexentries_llm, high_freq_lexentries['original'], 'llm', 'nyt')
+    #both_low_freq, only_one_low_freq = find_absolute_diffs_lextype(low_freq_lexentries_llm,
+    #                                                                 low_freq_lexentries['original'], 'llm', 'nyt')
+    #with open('analysis/lextypes/only_one_high_freq_examples.json', 'r', encoding='utf8') as f:
+    #    only_one_high_freq_examples = json.load(f)
+    #with open('analysis/lextypes/only_one_low_freq_examples.json', 'r', encoding='utf8') as f:
+    #    only_one_low_freq_examples = json.load(f)
+    # Sort by number of examples:
+    #for model in only_one_low_freq_examples:
+    #    only_one_high_freq_examples[model] = {k: v for k, v in sorted(only_one_high_freq_examples[model].items(), key=lambda item: len(item[1]), reverse=True)}
+    #    only_one_low_freq_examples[model] = {k: v for k, v in sorted(only_one_low_freq_examples[model].items(), key=lambda item: len(item[1]), reverse=True)}
+    # with open('analysis/lextypes/only_one_high_freq.json', 'w', encoding='utf8') as f:
+    #     json.dump(only_one_high_freq, f, ensure_ascii=False)
+    # with open('analysis/lextypes/only_one_low_freq.json', 'w', encoding='utf8') as f:
+    #     json.dump(only_one_low_freq, f, ensure_ascii=False)
     print(5)
     # top_freq_constr_names = list(descending_freq['constr']['llm'].keys())[0:50]
     # bottom_constr_llm = list(ascending_freq['constr']['llm'].keys())[0:50]
