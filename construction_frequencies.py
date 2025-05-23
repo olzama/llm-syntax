@@ -433,7 +433,7 @@ if __name__ == '__main__':
     #add_new_dataset(frequencies, wsj, 'wsj')
     #with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'w', encoding='utf8') as f:
     #    json.dump(frequencies, f)
-    with open('analysis/frequencies-json/frequencies-4K.json', 'r') as f:
+    with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'r') as f:
        all_data = json.load(f)
     exclusive_hum, exclusive_llm = exclusive_members(all_data, 'original', LLM_GENERATED)
     # for llm_name in LLM_GENERATED:
