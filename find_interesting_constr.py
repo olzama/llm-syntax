@@ -38,6 +38,16 @@ def find_significant_constr(normalized_freq, threshold_percentile=80):
     # Apply multiple testing correction (FDR); probably too harsh, not using it for
     #corrected_pvals_frequent = multitest.fdrcorrection(p_values['frequent'], alpha=0.05)[1]
     #corrected_pvals_infrequent = multitest.fdrcorrection(p_values['infrequent'], alpha=0.05)[1]
+    rejected_frequent, qvals_frequent = multitest.multipletests(
+        p_values['frequent'],
+        alpha=0.1,
+        method="fdr_tsbh"  # two-stage BH
+    )[:2]
+    rejected_ifrequent, qvals_ifrequent = multitest.multipletests(
+        p_values['infrequent'],
+        alpha=0.1,
+        method="fdr_tsbh"  # two-stage BH
+    )[:2]
     write_out_interesting_constr(significant_constructions, "frequent")
     write_out_interesting_constr(significant_constructions, "infrequent")
     return significant_constructions
