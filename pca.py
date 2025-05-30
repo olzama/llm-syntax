@@ -1,29 +1,31 @@
 import json
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 from sklearn.decomposition import PCA
 import ast
+import os
+import matplotlib.ticker as ticker
 
-# Load the JSON file
-with open("analysis/cosine-pairs/models/norm-by-constr-count/syntax-only.json", "r") as f:
-    raw_data = json.load(f)
+# Define input/output file mapping and titles
+datasets = [
+    {
+        "title": "Syntactic Types",
+        "input": "analysis/cosine-pairs/models/norm-by-constr-count/syntax-only.json",
+        "output": "analysis/plots/pca_syntax.png"
+    },
+    {
+        "title": "Lexical Types",
+        "input": "analysis/cosine-pairs/models/norm-by-constr-count/lextype-only.json",
+        "output": "analysis/plots/pca_lextype.png"
+    },
+    {
+        "title": "Lexical Rules",
+        "input": "analysis/cosine-pairs/models/norm-by-constr-count/lexrule-only.json",
+        "output": "analysis/plots/pca_lexrule.png"
+    }
+]
 
-# Parse the flat dictionary into a list of tuples
-entries = [(ast.literal_eval(k), float(v)) for k, v in raw_data.items()]
-
-# Get unique labels
-labels = sorted(set(i for pair in entries for i in pair[0]))
-
-# Initialize symmetric matrix
-similarity_matrix = pd.DataFrame(1.0, index=labels, columns=labels)
-
-# Fill in cosine similarity values
-for (a, b), val in entries:
-    similarity_matrix.loc[a, b] = val
-    similarity_matrix.loc[b, a] = val  # ensure symmetry
-
-# Rename labels for clarity
+# Label renaming
 rename_map = {
     "original": "Original NYT",
     "llama_07": "LLaMA 7B",
@@ -35,77 +37,78 @@ rename_map = {
     "wsj": "WSJ",
     "wikipedia": "Wikipedia"
 }
-similarity_matrix.rename(index=rename_map, columns=rename_map, inplace=True)
 
-# Compute distance matrix
-distance_matrix = 1 - similarity_matrix
+# Loop through all datasets
+for ds in datasets:
+    with open(ds["input"], "r") as f:
+        raw_data = json.load(f)
 
-# Run PCA
-pca = PCA(n_components=2)
-pca_coords = pca.fit_transform(distance_matrix)
-explained_variance = pca.explained_variance_ratio_ * 100
+    entries = [(ast.literal_eval(k), float(v)) for k, v in raw_data.items()]
+    labels = sorted(set(i for pair in entries for i in pair[0]))
 
-# Prepare DataFrame for plotting
-pca_df = pd.DataFrame(pca_coords, columns=["PC1", "PC2"])
-pca_df["Label"] = similarity_matrix.index
-if pca_df.loc[pca_df["Label"] == "Original NYT", "PC1"].values[0] > 0:
-    pca_df["PC1"] *= -1
+    similarity_matrix = pd.DataFrame(1.0, index=labels, columns=labels)
+    for (a, b), val in entries:
+        similarity_matrix.loc[a, b] = val
+        similarity_matrix.loc[b, a] = val
 
-# Plot PCA projection
+    similarity_matrix.rename(index=rename_map, columns=rename_map, inplace=True)
+    distance_matrix = 1 - similarity_matrix
 
-# Define custom markers and colors
-markers = []
-colors = []
-for label in pca_df["Label"]:
-    if label == "Original NYT":
-        markers.append("*")
-        colors.append("red")
-    elif label == "Wikipedia":
-        markers.append("s")
-        colors.append("black")
-    elif label == "WSJ":
-        markers.append("s")
-        colors.append("black")
-    else:
-        markers.append("o")
-        colors.append("black")
+    pca = PCA(n_components=2)
+    coords = pca.fit_transform(distance_matrix)
+    explained_variance = pca.explained_variance_ratio_ * 100
 
-offsets = [
-    (-0.008,  0.004), (0.008,  0.002), (-0.010, -0.003),
-    (0.006, -0.004), (0.010, 0.005), (-0.006, -0.005),
-]
+    df = pd.DataFrame(coords, columns=["PC1", "PC2"])
+    df["Label"] = similarity_matrix.index
 
-plt.figure(figsize=(12, 10))
-plt.axis('equal')  # forces equal scaling
-# plt.xlim(-0.04, 0.15)
-# plt.ylim(-0.04, 0.015)
+    if df.loc[df["Label"] == "Original NYT", "PC1"].values[0] > 0:
+        df["PC1"] *= -1
 
-for i, row in pca_df.iterrows():
-    plt.scatter(row["PC1"], row["PC2"], marker=markers[i], color=colors[i], s=200)
-    if row['Label'] == "Original NYT":
-        ha = 'center'
-        va = 'top'  # anchor the text box to the top, placing it below the marker
-        dx = 0
-        dy = 0
-    elif row['Label'] == "Mistral 7B":
-        ha = 'center'
-        va = 'bottom'
-    else:
-        ha = 'left'
-        va = 'center'
-        dx, dy = offsets[i % len(offsets)]
-    plt.text(row["PC1"] + 0.002, row["PC2"], row["Label"], fontsize=10, ha='left', va=va, color= colors[i])
-#sns.scatterplot(data=pca_df, x="PC1", y="PC2", s=200, color='black', marker='o')
-#for _, row in pca_df.iterrows():
-#    plt.text(row["PC1"] + 0.002, row["PC2"], row["Label"], fontsize=10, ha='left', va='center')
+    # Prepare colors for legend
+    color_map = {}
+    cmap = plt.cm.get_cmap("tab10")
+    for i, label in enumerate(df["Label"]):
+        if label in {"Original NYT", "Wikipedia", "WSJ"}:
+            color_map[label] = "black" if label != "Original NYT" else "red"
+        else:
+            color_map[label] = cmap(len(color_map) % 10)
 
-#plt.gca().set_aspect('equal', adjustable='datalim')
-#plt.xlim(-0.03, 0.12)
-#plt.ylim(-0.02, 0.015)
+    x_min, x_max = df["PC1"].min(), df["PC1"].max()
+    y_min, y_max = df["PC2"].min(), df["PC2"].max()
+    x_pad = (x_max - x_min) * 0.15
+    y_pad = (y_max - y_min) * 0.15
 
-#plt.title("Cosine Similarity of Construction Frequencies Across Human and Model-Generated Texts (PCA Projection)", fontsize=12)
-plt.xlabel(f"Principal Component 1 ({explained_variance[0]:.2f}% variance)")
-plt.ylabel(f"Principal Component 2 ({explained_variance[1]:.2f}% variance)")
-plt.grid(True)
-plt.tight_layout()
-plt.savefig('analysis/plots/constr-pairwise-pca-norm-by-constr-count.png')
+    aspect_ratio = (y_max - y_min + y_pad * 2) / (x_max - x_min + x_pad * 2)
+    aspect_ratio = max(aspect_ratio, 0.75)
+
+    fig_width = 10
+    fig_height = fig_width * aspect_ratio
+
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    ax.set_xlim(x_min - x_pad, x_max + x_pad)
+    ax.set_ylim(y_min - y_pad, y_max + y_pad)
+
+    # Plot points only, with legend colors
+    for _, row in df.iterrows():
+        label = row["Label"]
+        marker = "*" if label == "Original NYT" else "s" if label in {"Wikipedia", "WSJ"} else "o"
+        ax.scatter(row["PC1"], row["PC2"], marker=marker, color=color_map[label], s=150)
+
+    ax.set_xlabel(f"PC1 ({explained_variance[0]:.1f}% variance)")
+    ax.set_ylabel(f"PC2 ({explained_variance[1]:.1f}% variance)")
+    ax.set_title(f"PCA of Cosine Distances: {ds['title']}")
+    ax.grid(True)
+
+    # Use fixed y-tick step
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(0.001))
+
+    # Always include legend
+    handles = [plt.Line2D([0], [0], marker="o" if label not in {"Original NYT", "Wikipedia", "WSJ"} else ("*" if label == "Original NYT" else "s"),
+                          color="w", label=label,
+                          markerfacecolor=color_map[label], markersize=10)
+               for label in df["Label"]]
+    ax.legend(handles=handles, title="Sources", bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    plt.tight_layout()
+    plt.savefig(ds["output"])
+    plt.close()
