@@ -423,125 +423,23 @@ def analyze_lextypes_by_freq(norm_freq, lextypes, dataset):
     return by_seg
 
 if __name__ == '__main__':
-    #data_dir = sys.argv[1]
-    #erg_dir = sys.argv[2]
-    #lex, constrs = populate_type_defs(erg_dir)
-    #frequencies = read_freq(data_dir, lex, 0)
-    #wikipedia = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wikipedia', lex, 1)
-    #wsj = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wsj', lex, 1)
-    #add_new_dataset(frequencies, wikipedia, 'wikipedia')
-    #add_new_dataset(frequencies, wsj, 'wsj')
-    #with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'w', encoding='utf8') as f:
-    #    json.dump(frequencies, f)
+    data_dir = sys.argv[1]
+    erg_dir = sys.argv[2]
     with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'r') as f:
        all_data = json.load(f)
-    exclusive_hum, exclusive_llm = exclusive_members(all_data, 'original', LLM_GENERATED)
-    # for llm_name in LLM_GENERATED:
-    #     exlusive_hum, exclusive_llm = exclusive_members(all_data, 'original', [llm_name])
-    #     print(f"Exclusive to {llm_name}: {len(exclusive_llm['lextype'])}")
-    #     #for lt in exclusive_llm['lextype']:
-    #     #    print(lt)
-    #     print(f"Exclusive to human-authored: {len(exlusive_hum['lextype'])}")
-    #     #for lt in exlusive_hum['lextype']:
-    #     #    print(lt)
-    frequencies = combine_datasets(all_data, LLM_GENERATED, 'llm')
-    nyt_human = separate_dataset(all_data, 'original')
-    for rule_type in frequencies:
-        frequencies[rule_type]['original'] = nyt_human[rule_type]
-    #wsj = separate_dataset(all_data, 'wsj')
-    #wikipedia = separate_dataset(all_data, 'wikipedia')
-    #read_dataset(frequencies, nyt_human, 'original')
-    #read_dataset(frequencies, wsj, 'wsj')
-    #read_dataset(frequencies, wikipedia, 'wikipedia')
-    normalized_frequencies = normalize_by_constr_count(frequencies)
-    ascending_freq, descending_freq = sort_normalized_data(normalized_frequencies)
-    lextype_hum_by_percentile = analyze_lextypes_by_freq(descending_freq, exclusive_hum['lextype'], 'original')
-    lextype_llm_by_percentile = analyze_lextypes_by_freq(descending_freq, exclusive_llm['lextype'], 'llm')
-    with open ('analysis/lextypes/hum-lextype-percentile_examples.json', 'r') as f:
-        lextypes_be_percentile_hum_examples = json.load(f)
-    with open ('analysis/lextypes/llm-lextype-percentile_examples.json', 'r') as f:
-        lextypes_be_percentile_llm_examples = json.load(f)
-    # with open('analysis/lextypes/lextype_hum_by_percentile.json', 'w', encoding='utf8') as f:
-    #     json.dump(lextype_hum_by_percentile, f, ensure_ascii=False)
-    # with open('analysis/lextypes/lextype_llm_by_percentile.json', 'w', encoding='utf8') as f:
-    #     json.dump(lextype_llm_by_percentile, f, ensure_ascii=False)
-    lexicon = read_lexicon([erg_dir + '/lexicon.tdl', erg_dir + '/ple.tdl', erg_dir + '/gle.tdl',erg_dir + '/lexicon-rbst.tdl'])
-    high_membership, low_membership, singletons = lexical_types(lexicon)
-    word2membership = map_word2membership(high_membership, low_membership, singletons)
-    # with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt-wsj-wiki-sample.json', 'r', encoding='utf8') as f:
-    #     lexentries_nyt_wsj_wiki = json.load(f)
-    # with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-all-llm-sample-25K.json', 'r',
-    #           encoding='utf8') as f:
-    #     lexentries_all_llm_sample = json.load(f)
-    #only_in_llm, only_in_human = compare_lexentries(lexentries_nyt_wsj_wiki)
-    #only_in_llm_collective = set(list(lexentries_all_llm_sample.keys())) - set(list(lexentries_nyt_wsj_wiki['original'].keys()))
-    #only_in_human_lt = map2lt(only_in_human, word2membership)
-    #only_in_llm_lt = map2lt(only_in_llm, word2membership)
-    #high_freq_lexentries, low_freq_lexentries = categorize_lexentries(lexentries_nyt_wsj_wiki, word2membership,10,0)
-    #high_freq_lexentries_llm = combine_lextype_datasets(high_freq_lexentries, ['llama_07'])
-    #low_freq_lexentries_llm = combine_lextype_datasets(low_freq_lexentries, ['llama_07'])
-    #high_freq_lexentries_human_all = combine_lextype_datasets(high_freq_lexentries, ALL_HUMAN_AUTHORED)
-    #both_high_freq, only_one_high_freq = find_absolute_diffs_lextype(high_freq_lexentries_llm, high_freq_lexentries['original'], 'llm', 'nyt')
-    #both_low_freq, only_one_low_freq = find_absolute_diffs_lextype(low_freq_lexentries_llm,
-    #                                                                 low_freq_lexentries['original'], 'llm', 'nyt')
-    #with open('analysis/lextypes/only_one_high_freq_examples.json', 'r', encoding='utf8') as f:
-    #    only_one_high_freq_examples = json.load(f)
-    #with open('analysis/lextypes/only_one_low_freq_examples.json', 'r', encoding='utf8') as f:
-    #    only_one_low_freq_examples = json.load(f)
-    # Sort by number of examples:
-    #for model in only_one_low_freq_examples:
-    #    only_one_high_freq_examples[model] = {k: v for k, v in sorted(only_one_high_freq_examples[model].items(), key=lambda item: len(item[1]), reverse=True)}
-    #    only_one_low_freq_examples[model] = {k: v for k, v in sorted(only_one_low_freq_examples[model].items(), key=lambda item: len(item[1]), reverse=True)}
-    # with open('analysis/lextypes/only_one_high_freq.json', 'w', encoding='utf8') as f:
-    #     json.dump(only_one_high_freq, f, ensure_ascii=False)
-    # with open('analysis/lextypes/only_one_low_freq.json', 'w', encoding='utf8') as f:
-    #     json.dump(only_one_low_freq, f, ensure_ascii=False)
-    print(5)
-    # top_freq_constr_names = list(descending_freq['constr']['llm'].keys())[0:50]
-    # bottom_constr_llm = list(ascending_freq['constr']['llm'].keys())[0:50]
-    # bottom_constr_human = list(ascending_freq['constr']['original'].keys())[0:50]
-    # with open('analysis/constructions/top_constr_list.txt', 'w') as f:
-    #     for c in top_freq_constr_names:
-    #         f.write(c+'\n')
-    # with open('analysis/constructions/bottom_constr_llm_list.txt', 'w') as f:
-    #     for c in bottom_constr_llm:
-    #         f.write(c+'\n')
-    # with open('analysis/constructions/bottom_constr_human_list.txt', 'w') as f:
-    #     for c in bottom_constr_human:
-    #         f.write(c+'\n')
-    # freq_counts_by_model(descending_freq, 'llm', 'original', 'wsj', 'wikipedia', 0,
-    #                      50, "Top frequencies", reverse=True)
-    # freq_counts_by_model(ascending_freq, 'llm', 'original', 'wsj', 'wikipedia', 0,
-    #                      50, "Bottom LLM frequencies", reverse=True)
-    # freq_counts_by_model(ascending_freq,'original', 'llm','wsj', 'wikipedia', 0,
-    #                      50, "Bottom human frequencies", reverse=True)
-    #visualize_counts(descending_freq, ascending_freq)
-    # all_data = combine_types(frequencies, ['constr', 'lexrule', 'lextype'])
-    # no_lextype = combine_types(frequencies, ['constr', 'lexrule'])
-    # only_syntactic = combine_types(frequencies, ['constr'])
-    # only_lexical = combine_types(frequencies, ['lexrule'])
-    # only_vocab = combine_types(frequencies, ['lextype'])
-    # all_cosines = compute_cosine(all_data)
-    # syntactic_cosines = compute_cosine(only_syntactic)
-    # constr_and_lexrule_cosines = compute_cosine(no_lextype)
-    # lexical_cosines = compute_cosine(only_lexical)
-    # vocab_cosines = compute_cosine(only_vocab)
-    # serialize_dict(all_cosines, 'analysis/cosine-pairs/models/all-data.json')
-    # serialize_dict(syntactic_cosines, 'analysis/cosine-pairs/models/syntax-only.json')
-    # serialize_dict(constr_and_lexrule_cosines, 'analysis/cosine-pairs/models/no-lextype.json')
-    # serialize_dict(lexical_cosines, 'analysis/cosine-pairs/models/lexrule-only.json')
-    # serialize_dict(vocab_cosines, 'analysis/cosine-pairs/models/lextype-only.json')
-    # #with open('analysis/cosine-pairs/authors/all-cosines.json', 'r') as file:
-    # #    author_pairs_cosines_all = json.load(file)
-    # my_dataset = "original"
-    # human_datasets = ["wikipedia", "wsj"]
-    # machine_datasets = list(set(dataset_sizes.keys())-set(human_datasets)-{my_dataset})
-    # report_comparison(my_dataset, machine_datasets, human_datasets, all_cosines)
-    # print('Only syntactic:')
-    # report_comparison(my_dataset, machine_datasets, human_datasets, syntactic_cosines)
-    # print('Constructions and lexical rules:')
-    # report_comparison(my_dataset, machine_datasets, human_datasets, constr_and_lexrule_cosines)
-    # print('Only lexical rules:')
-    # report_comparison(my_dataset, machine_datasets, human_datasets, lexical_cosines)
-    # print('Only vocabulary:')
-    # report_comparison(my_dataset, machine_datasets, human_datasets, vocab_cosines)
+    normalized_frequencies = normalize_by_num_sen(all_data)
+    #normalized_frequencies = normalize_by_constr_count(all_data)#(frequencies)
+    #ascending_freq, descending_freq = sort_normalized_data(normalized_frequencies)
+    all_data = combine_types(normalized_frequencies, ['constr', 'lexrule', 'lextype'])
+    no_lextype = combine_types(normalized_frequencies, ['constr', 'lexrule'])
+    no_lexrule = combine_types(normalized_frequencies, ['constr', 'lextype'])
+    only_syntactic = combine_types(normalized_frequencies, ['constr'])
+    only_lexical = combine_types(normalized_frequencies, ['lexrule'])
+    only_vocab = combine_types(normalized_frequencies, ['lextype'])
+    all_cosines = compute_cosine(all_data)
+    syntactic_cosines = compute_cosine(only_syntactic)
+    constr_and_lexrule_cosines = compute_cosine(no_lextype)
+    constr_and_lextype_cosines = compute_cosine(no_lexrule)
+    lexical_cosines = compute_cosine(only_lexical)
+    vocab_cosines = compute_cosine(only_vocab)
+    serialize_dict(vocab_cosines, 'analysis/cosine-pairs/models/norm-by-sen-count/lextype-only.json')
