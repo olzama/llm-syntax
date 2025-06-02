@@ -423,8 +423,8 @@ def analyze_lextypes_by_freq(norm_freq, lextypes, dataset):
     return by_seg
 
 if __name__ == '__main__':
-    data_dir = sys.argv[1]
-    erg_dir = sys.argv[2]
+    #data_dir = sys.argv[1]
+    #erg_dir = sys.argv[2]
     #lex, constrs = populate_type_defs(erg_dir)
     #frequencies = read_freq(data_dir, lex, 0)
     #wikipedia = collect_types_multidir(erg_dir+'/tsdb/llm-syntax/wikipedia', lex, 1)
