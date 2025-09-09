@@ -42,6 +42,57 @@ Each file contains a nested dictionary with the structure:
 
 * **count** — frequency of each type in the parse. Counts are computed after parsing with the 2025 release of the [English Resource Grammar (ERG)](https://github.com/delph-in/erg/releases/tag/2025).
 
+### Linguistic Diversity Analysis
+
+This script analyzes linguistic diversity in language model outputs using Shannon and Simpson diversity indices.
+
+#### Usage
+
+```bash
+python diversity.py [JSON_FILES...] [OPTIONS]
+```
+
+#### Arguments
+
+- `JSON_FILES`: One or more JSON files containing linguistic data in the expected format
+- `--phenomena`: Phenomena to analyze (choices: `lexrule`, `lextype`, `constr`; default: all three)
+- `--num-bootstrap`: Number of permutation test iterations (default: 10000)
+- `--output-dir`: Directory for output files (default: `out`)
+
+#### Examples
+
+Basic usage with default settings (using uv for dependencies):
+```bash
+uv run scripts/diversity.py analysis/frequencies-json/*.json 
+OR
+python scripts/diversity.py analysis/frequencies-json/*.json 
+```
+
+Analyze only constructions and lexical rules, save to custom directory:
+```bash
+python diversity.py data1.json --phenomena constr lexrule --output-dir results
+```
+
+Run with fewer bootstrap iterations for faster execution:
+```bash
+python diversity.py data1.json --num-bootstrap 1000
+```
+
+#### Output Files
+
+The script generates the following files in the output directory:
+
+- `erg-llm-{phenomenon}-{index}.md`: Markdown tables with diversity scores
+- `llm-erg-{phenomenon}-{index}.png`: Tufte-style plots showing diversity comparisons
+
+Where `{phenomenon}` is one of `constructions`, `lexical-rules`, or `lexical-types`, and `{index}` is either `shannon` or `simpson`.
+
+#### Dependencies
+
+- numpy
+- matplotlib
+- json (built-in)
+- collections (built-in)
 
 ## Publication
 

@@ -110,7 +110,7 @@ def simpson_diversity_index(observations):
     return D
 
 
-def analyze_diversity(thing, data):
+def analyze_diversity(thing, data, output_dir):
     """Analyze diversity metrics for the given data."""
     print(f"Analyzing diversity for: {thing}")
     print(f"Available models: {list(data.keys())}")
@@ -137,7 +137,8 @@ def analyze_diversity(thing, data):
         scores_sorted = [scores[i] for i in sorted_indices]
 
         # Create markdown table
-        with open(f"erg-llm-{thing}-{idx}.md", 'w') as out:
+        md_filename = os.path.join(output_dir, f"erg-llm-{thing.replace(' ', '-').lower()}-{idx.lower()}.md")
+        with open(md_filename, 'w') as out:
             print("""| Model   | Diversity |
 | --- | --- |""", file=out)
             for model, score in zip(models_sorted, scores_sorted):
@@ -171,7 +172,8 @@ def analyze_diversity(thing, data):
         ax.set_title(f"Diversity: {thing} ({idx} Index)", fontsize=12, fontweight='bold')
 
         plt.tight_layout()
-        plt.savefig(f"llm-erg-{thing}-{idx}.png", dpi=150, bbox_inches='tight')
+        png_filename = os.path.join(output_dir, f"llm-erg-{thing.replace(' ', '-').lower()}-{idx.lower()}.png")
+        plt.savefig(png_filename, dpi=150, bbox_inches='tight')
         plt.close()  # Close the figure to free memory
 
 
@@ -206,8 +208,14 @@ def main():
                        help='Phenomena to analyze (default: constr, lexrule, lextype)')
     parser.add_argument('--num-bootstrap', type=int, default=10000,
                        help='Number of bootstrap/permutation iterations (default: 10000)')
+    parser.add_argument('--output-dir', type=str, default='out',
+                       help='Output directory for generated files (default: out)')
     
     args = parser.parse_args()
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(args.output_dir, exist_ok=True)
+    print(f"Output files will be saved to: {args.output_dir}")
     
     # Map phenomena to analysis names
     phenomena_map = {
@@ -228,7 +236,7 @@ def main():
             continue
         
         # Analyze diversity
-        analyze_diversity(thing, data)
+        analyze_diversity(thing, data, args.output_dir)
         
         # Perform statistical tests if we have both LLMs and original data
         if 'LLMs' in data and any(model in data for model in ['original', 'new-original']):
