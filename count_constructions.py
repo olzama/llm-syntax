@@ -78,8 +78,8 @@ def collect_types(data_dir, lex, lexentries, depth, sample_size=None):
     return sorted_types
 
 if __name__ == '__main__':
-    data_dir = sys.argv[1]
-    erg_dir = sys.argv[2]
+    data_dir = sys.argv[2]
+    erg_dir = sys.argv[1]
     print("Reading in the ERG lexicon...")
     lex,constrs = populate_type_defs(erg_dir)
     types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
@@ -98,7 +98,7 @@ if __name__ == '__main__':
             model_types = collect_types(dataset_path, lex, lexentries[model],1, 4300)
         for ctype in types:
             types[ctype][model] = model_types[ctype]
-    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/frequencies-4K.json', 'w', encoding='utf8') as f:
+    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/02-05-2025-original-frequencies.json', 'w', encoding='utf8') as f:
        json.dump(types, f, ensure_ascii=False)
     #for model in types['constr'].keys():
     #     lexentries[model] = {k: v for k, v in sorted(lexentries[model].items(), key=lambda item: (item[1], item[0]), reverse=True)}

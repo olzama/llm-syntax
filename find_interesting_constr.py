@@ -2,10 +2,12 @@ import json
 import scipy.stats as stats
 import numpy as np
 from statsmodels.stats import multitest
+
+from construction_frequencies import add_new_dataset
 from util import normalize_by_constr_count, sort_normalized_data, freq_counts_by_model
 from boxplots import prepare_data_for_plotting, create_boxplot
 
-ALL_HUMAN_AUTHORED = ["original", "wikipedia", "wsj"]
+ALL_HUMAN_AUTHORED = ["original", "wikipedia", "wsj", "new-original"]
 HUMAN_NYT = ["original"]
 LLM_GENERATED = ['falcon_07', 'llama_07', 'llama_13', 'llama_30', 'llama_65', 'mistral_07']
 
@@ -154,6 +156,9 @@ if __name__ == '__main__':
     # Load frequencies for human authors:
     with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'r') as f:
         model_frequencies = json.load(f)
+    with open('analysis/frequencies-json/02-05-2025-original-frequencies.json', 'r') as f:
+       new_original_data = json.load(f)
+    add_new_dataset(model_frequencies, new_original_data, 'new-original')
     normalized_freq = normalize_by_constr_count(model_frequencies)
     ascending_norm_freq, descending_norm_freq = sort_normalized_data(normalized_freq)
     #machine_datasets = list(set(normalized_freq['constr'].keys())-set(human_datasets))
@@ -164,8 +169,7 @@ if __name__ == '__main__':
     #                     0, 50, 'llama_07', reverse=False)
     signif_constr = find_significant_constr(descending_norm_freq, 80)
     hapax_constr = find_hapax_constr(model_frequencies, 2)
-    with open('/mnt/kesha/llm-syntax/analysis/constructions/significant_constr.json', 'w') as f:
+    with open('/mnt/kesha/llm-syntax/analysis/constructions/significant_constr-2025.json', 'w') as f:
         json.dump(signif_constr, f, ensure_ascii=False)
-    with open('/mnt/kesha/llm-syntax/analysis/constructions/hapax_constr.json', 'w') as f:
+    with open('/mnt/kesha/llm-syntax/analysis/constructions/hapax_constr-2025.json', 'w') as f:
         json.dump(hapax_constr, f, ensure_ascii=False)
-    print(5)

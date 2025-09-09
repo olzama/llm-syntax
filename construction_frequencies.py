@@ -18,7 +18,7 @@ LLM_NO_FALCON = ['llama_07', 'llama_13', 'llama_30', 'llama_65', 'mistral_07']
 
 
 dataset_sizes = {'original':26102,'falcon_07':27769, 'llama_07':37825, 'llama_13':37800,'llama_30':37568,
-                 'llama_65':38107,'mistral_07':35086, 'wikipedia': 10726, 'wsj': 43043}
+                 'llama_65':38107,'mistral_07':35086, 'wikipedia': 10726, 'wsj': 43043, 'new-original': 29339}
 
 def exclusive_members(freq, my_dataset, datasets_to_compare):
     only_in_mine = {'constr': set(), 'lexrule': set(), 'lextype': set()}
@@ -124,11 +124,11 @@ def read_dataset(frequencies, new_dataset, dataset_name):
         for rule in new_dataset[rule_type]:
             frequencies[rule_type][dataset_name][rule] = new_dataset[rule_type][rule]
 
-def add_new_dataset(frequencies, new_dataset, dataset_name):
+def add_new_dataset(frequencies, new_dataset, dataset_name, model_name='original'):
     for rule_type in frequencies:
         frequencies[rule_type][dataset_name] = {}
-        for rule in new_dataset[rule_type]:
-            frequencies[rule_type][dataset_name][rule] = new_dataset[rule_type][rule]
+        for rule in new_dataset[rule_type][model_name]:
+            frequencies[rule_type][dataset_name][rule] = new_dataset[rule_type][model_name][rule]
             for model in frequencies[rule_type]:
                 if rule not in frequencies[rule_type][model]:
                     frequencies[rule_type][model][rule] = 0
@@ -427,19 +427,17 @@ if __name__ == '__main__':
     erg_dir = sys.argv[2]
     with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'r') as f:
        all_data = json.load(f)
-    normalized_frequencies = normalize_by_num_sen(all_data)
-    #normalized_frequencies = normalize_by_constr_count(all_data)#(frequencies)
-    #ascending_freq, descending_freq = sort_normalized_data(normalized_frequencies)
+    with open('analysis/frequencies-json/02-05-2025-original-frequencies.json', 'r') as f:
+       new_original_data = json.load(f)
+    add_new_dataset(all_data, new_original_data, 'new-original')
+    normalized_frequencies = normalize_by_constr_count(all_data)
     all_data = combine_types(normalized_frequencies, ['constr', 'lexrule', 'lextype'])
-    no_lextype = combine_types(normalized_frequencies, ['constr', 'lexrule'])
-    no_lexrule = combine_types(normalized_frequencies, ['constr', 'lextype'])
     only_syntactic = combine_types(normalized_frequencies, ['constr'])
     only_lexical = combine_types(normalized_frequencies, ['lexrule'])
     only_vocab = combine_types(normalized_frequencies, ['lextype'])
-    all_cosines = compute_cosine(all_data)
     syntactic_cosines = compute_cosine(only_syntactic)
-    constr_and_lexrule_cosines = compute_cosine(no_lextype)
-    constr_and_lextype_cosines = compute_cosine(no_lexrule)
     lexical_cosines = compute_cosine(only_lexical)
     vocab_cosines = compute_cosine(only_vocab)
-    serialize_dict(vocab_cosines, 'analysis/cosine-pairs/models/norm-by-sen-count/lextype-only.json')
+    serialize_dict(vocab_cosines, 'analysis/cosine-pairs/models/norm-by-constr-count/2025/lextype-only.json')
+    serialize_dict(syntactic_cosines, 'analysis/cosine-pairs/models/norm-by-constr-count/2025/syntax-only.json')
+    serialize_dict(lexical_cosines, 'analysis/cosine-pairs/models/norm-by-constr-count/2025/lexrule-only.json')

@@ -11,23 +11,24 @@ from sklearn.metrics import pairwise_distances
 datasets = [
     {
         "title": "Syntactic Types",
-        "input": "analysis/cosine-pairs/models/norm-by-constr-count/syntax-only.json",
-        "output": "analysis/plots/pca_syntax.png"
+        "input": "analysis/cosine-pairs/models/norm-by-constr-count/2025/syntax-only.json",
+        "output": "analysis/plots/2025/pca_syntax.png"
     },
     {
         "title": "Lexical Types",
-        "input": "analysis/cosine-pairs/models/norm-by-constr-count/lextype-only.json",
-        "output": "analysis/plots/pca_lextype.png"
+        "input": "analysis/cosine-pairs/models/norm-by-constr-count/2025/lextype-only.json",
+        "output": "analysis/plots/2025/pca_lextype.png"
     },
     {
         "title": "Lexical Rules",
-        "input": "analysis/cosine-pairs/models/norm-by-constr-count/lexrule-only.json",
-        "output": "analysis/plots/pca_lexrule.png"
+        "input": "analysis/cosine-pairs/models/norm-by-constr-count/2025/lexrule-only.json",
+        "output": "analysis/plots/2025/pca_lexrule.png"
     }
 ]
 
 # Label renaming
 rename_map = {
+    "new-original": "NYT-2025",
     "original": "Original NYT",
     "llama_07": "LLaMA 7B",
     "llama_13": "LLaMA 13B",
@@ -73,6 +74,9 @@ for ds in datasets:
     for i, label in enumerate(df["Label"]):
         if label == "Original NYT":
             color_map[label] = "red"
+            marker_map[label] = "*"
+        elif label == "NYT-2025":
+            color_map[label] = "orange"
             marker_map[label] = "*"
         elif label == "Wikipedia" or label == "WSJ":
             color_map[label] = "black"
