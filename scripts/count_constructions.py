@@ -88,21 +88,13 @@ if __name__ == '__main__':
         lexentries[model] = {}
         print("Counting constructions in {}...".format(model))
         dataset_path = os.path.join(data_dir, model)
-        if model in ['wsj']:
-            continue
-        elif model in ['wescience']:
-            continue
-        elif model in ['original']:
-            model_types = collect_types(dataset_path, lex, lexentries[model],1)
+        if model in ['wsj', 'wescience']:
+            model_types = collect_types_multidir(dataset_path, lex, lexentries[model], 1)
         else:
-            model_types = collect_types(dataset_path, lex, lexentries[model],1, 4300)
+            model_types = collect_types(dataset_path, lex, lexentries[model], 1)
         for ctype in types:
             types[ctype][model] = model_types[ctype]
-    with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/02-05-2025-original-frequencies.json', 'w', encoding='utf8') as f:
-       json.dump(types, f, ensure_ascii=False)
-    #for model in types['constr'].keys():
-    #     lexentries[model] = {k: v for k, v in sorted(lexentries[model].items(), key=lambda item: (item[1], item[0]), reverse=True)}
-    # with open('/mnt/kesha/llm-syntax/analysis/frequencies-json/lexentries-nyt-wsj-wiki-sample.json', 'w', encoding='utf8') as f:
-    #     json.dump(lexentries, f, ensure_ascii=False)
+    with open('./analysis/frequencies-json/frequencies-2023-repro.json', 'w', encoding='utf8') as f:
+       json.dump(types, f, ensure_ascii=False, indent=2)
 
 
