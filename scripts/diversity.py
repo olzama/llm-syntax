@@ -18,8 +18,17 @@ import json
 import argparse
 
 
-nyt =  ['original', 'original_2025', 'nyt_2023_human']
-humans =  nyt + ['wsj', 'wescience']
+nyt =  ['original', 'original_2025', 'nyt_2023_human',  'nyt_human-2025']
+humans =  nyt + ['wsj', 'wikipedia']
+series = {"nyt":{"label": "Human (NYT)",
+                 "color": "#B44E3A"},  # chestnut brown
+          "human":{"label": "Human (WSJ/Wiki)", "color": "#D17F4A"},  # copper
+          "llm2023":{"label": "LLM (2023)",     "color": "#3A6DB4"},  # cobalt blue
+          "llm2025":{"label": "LLM (2025)",     "color": "#4AA6B4"},  # teal-blue
+          "llms": {"label": "LLM (all)",     "color": 'black'},  # black
+          }
+
+
 
 def get_short_label_from_filepath(filepath):
     """Extracts a pattern like '1K', '3K' etc., from a filename for a concise label."""
@@ -28,6 +37,20 @@ def get_short_label_from_filepath(filepath):
     if match:
         return match.group(1).upper()
     return base_name
+
+def get_year_from_filepath(filepath):
+    """
+    Extracts the year from a filename for a concise label.
+    This should be in the model name
+    """
+    if filepath.endswith('wsj.json'):
+        return "2023"
+    base_name = os.path.splitext(os.path.basename(filepath))[0]
+    match = re.search(r'(20\d\d)', base_name)
+    if match:
+        return match.group(1).upper()
+    return base_name
+
 
 
 def load_data_from_json(json_files, phenomena=['constr']):
@@ -46,8 +69,8 @@ def load_data_from_json(json_files, phenomena=['constr']):
                     combined_data[phenomenon] = {}
                 for model in file_data[phenomenon]:
                     short_label = get_short_label_from_filepath(json_file)
-                    unique_model_name = f"{model} ({short_label})"
-
+                    year =  get_year_from_filepath(json_file)
+                    unique_model_name = f"{model} ({year})"
                     if unique_model_name not in combined_data[phenomenon]:
                         combined_data[phenomenon][unique_model_name] = {}
                     combined_data[phenomenon][unique_model_name].update(file_data[phenomenon][model])
@@ -71,26 +94,6 @@ def load_data_from_json(json_files, phenomena=['constr']):
 
     return data, model_to_file_map
 
-
-def load_data(directory, typs=['constr.txt']):
-    """Load cc text files in the given directory (legacy function)."""
-    data = {}
-    data['LLMs'] = []
-    for filename in os.listdir(directory):
-        for typ in typs:
-            filepath = os.path.join(directory, filename, typ)
-            if os.path.exists(filepath):
-                with open(filepath, 'r', encoding='utf-8') as file:
-                    names = []
-                    for line in file:
-                        parts = line.strip().split()
-                        if len(parts) == 2:
-                            name, frequency = parts[1], int(parts[0])
-                            names.extend([name] * frequency)
-                data[filename] = names
-                if filename not in humans:
-                    data['LLMs'] += names
-    return data
 
 
 def calculate_shannon_diversity(names):
@@ -160,16 +163,19 @@ def analyze_diversity(thing, data, model_to_file_map, output_dir, json_files):
         fig, ax = plt.subplots(figsize=(6, 4))
 
         for i, (score, model) in enumerate(zip(scores_sorted, models_sorted)):
-            source_file = model_to_file_map.get(model)
-            color = file_to_color.get(source_file, 'black')
-
-            if 'human' in model.lower():
-                ax.scatter(score, i, color=color, s=40, marker='*')
-            elif model.lower() == 'llms':
-                ax.scatter(score, i, color='black', s=80, marker='o')
+            mname= model.lower().split(' (')[0]
+            if mname in nyt:
+                ax.scatter(score, i, color=series['nyt']['color'], s=40, marker='*')
+            elif  mname  in humans:
+                ax.scatter(score, i, color=series['human']['color'], s=40, marker='+')
+            elif mname == 'llms':
+                ax.scatter(score, i, color=series['llms']['color'], s=80, marker='o')
             else:
-                ax.scatter(score, i, color=color, s=20, marker='o')
-
+                if '2023' in model:
+                    ax.scatter(score, i, color=series['llm2023']['color'], s=20, marker='o')
+                else:
+                    ax.scatter(score, i, color=series['llm2025']['color'], s=20, marker='o')
+                    
         ax.set_yticks(range(len(models_sorted)))
         ax.set_yticklabels(models_sorted, fontsize=10)
         ax.tick_params(axis='x', labelsize=10)
@@ -182,8 +188,10 @@ def analyze_diversity(thing, data, model_to_file_map, output_dir, json_files):
         ax.yaxis.set_ticks_position('none')
         ax.set_title(f"Diversity: {thing} ({idx} Index)", fontsize=12, fontweight='bold')
 
-        legend_patches = [mpatches.Patch(color=color, label=get_short_label_from_filepath(file))
-                          for file, color in file_to_color.items()]
+        legend_patches = [mpatches.Patch(color=series[k]['color'],
+                                         label=series[k]['label']) for k in series]
+                          
+                                         
         ax.legend(handles=legend_patches, loc='best', fontsize='small', title='Source File')
 
         plt.tight_layout()
@@ -246,9 +254,13 @@ def main():
             print(f"Insufficient data for {thing}. Skipping...")
             continue
         analyze_diversity(thing, data, model_to_file_map, args.output_dir, args.json_files)
-
-        if 'LLMs' in data and any(model in data for model in ['original', 'new-original']):
-            reference_data = data.get('original', data.get('new-original'))
+        
+        # Perform statistical tests if we have both LLMs and original data
+        if 'LLMs' in data and any(model in data for model in nyt):
+            reference_data = []
+            for model in nyt:
+                if model in data:
+                    reference_data.extend(data[model]) 
             if reference_data and len(data['LLMs']) > 1 and len(reference_data) > 1:
                 observed_diff, p_value, diffs = permutation_test(
                     data['LLMs'], reference_data, 'shannon', reps=args.num_bootstrap
