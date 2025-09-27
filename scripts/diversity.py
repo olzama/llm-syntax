@@ -15,6 +15,11 @@ from collections import Counter
 import json
 import argparse
 
+
+
+nyt =  ['original', 'original_2025', 'nyt_2023_human']
+humans =  nyt + ['wsj', 'wescience']
+
 def load_data_from_json(json_files, phenomena=['constr']):
     """Load data from JSON files with the specified structure."""
     data = {}
@@ -49,7 +54,7 @@ def load_data_from_json(json_files, phenomena=['constr']):
                 data[model].extend(names)
                 
                 # Add to LLMs category if not original data
-                if model not in ['original', 'original_2025', 'wsj', 'wikipedia']:
+                if model not in humans:
                     data['LLMs'].extend(names)
     
     return data
@@ -71,7 +76,7 @@ def load_data(directory, typs=['constr.txt']):
                             name, frequency = parts[1], int(parts[0])
                             names.extend([name] * frequency)
                 data[filename] = names
-                if filename != 'original':
+                if filename not in humans:
                     data['LLMs'] += names
     return data
 
@@ -149,8 +154,8 @@ def analyze_diversity(thing, data, output_dir):
 
         # Create different markers for different model types
         for i, (score, model) in enumerate(zip(scores_sorted, models_sorted)):
-            if model.lower().startswith('original'):
-                ax.scatter(score, i, color='black', s=40, marker='*')  # Star for original
+            if model.lower() in nyt:
+                ax.scatter(score, i, color='black', s=40, marker='*')  # Star for NYT texts
             elif model.lower() == 'llms':
                 ax.scatter(score, i, color='black', s=80, marker='o')  # Large circle for LLMs
             else:
@@ -239,8 +244,11 @@ def main():
         analyze_diversity(thing, data, args.output_dir)
         
         # Perform statistical tests if we have both LLMs and original data
-        if 'LLMs' in data and any(model in data for model in ['original', 'new-original']):
-            reference_data = data.get('original', data.get('new-original'))
+        if 'LLMs' in data and any(model in data for model in nyt):
+            reference_data = []
+            for model in nyt:
+                if model in data:
+                    reference_data.extend(data[model]) 
             if reference_data and len(data['LLMs']) > 1 and len(reference_data) > 1:
                 # Shannon diversity test
                 observed_diff, p_value, diffs = permutation_test(
