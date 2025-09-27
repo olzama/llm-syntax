@@ -7,57 +7,69 @@
 
 import os
 import math
+import re
 import random
 import numpy as np
 from collections import defaultdict as dd
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from collections import Counter
 import json
 import argparse
 
 
-
 nyt =  ['original', 'original_2025', 'nyt_2023_human']
 humans =  nyt + ['wsj', 'wescience']
+
+def get_short_label_from_filepath(filepath):
+    """Extracts a pattern like '1K', '3K' etc., from a filename for a concise label."""
+    base_name = os.path.splitext(os.path.basename(filepath))[0]
+    match = re.search(r'(\d+[kK])', base_name)
+    if match:
+        return match.group(1).upper()
+    return base_name
+
 
 def load_data_from_json(json_files, phenomena=['constr']):
     """Load data from JSON files with the specified structure."""
     data = {}
     data['LLMs'] = []
-    
-    # Combine data from all JSON files
+
+    model_to_file_map = {}
+
     combined_data = {}
     for json_file in json_files:
         with open(json_file, 'r', encoding='utf-8') as f:
             file_data = json.load(f)
-            # Merge data from this file
             for phenomenon in file_data:
                 if phenomenon not in combined_data:
                     combined_data[phenomenon] = {}
                 for model in file_data[phenomenon]:
-                    if model not in combined_data[phenomenon]:
-                        combined_data[phenomenon][model] = {}
-                    combined_data[phenomenon][model].update(file_data[phenomenon][model])
-    
-    # Extract names for each model based on specified phenomena
+                    short_label = get_short_label_from_filepath(json_file)
+                    unique_model_name = f"{model} ({short_label})"
+
+                    if unique_model_name not in combined_data[phenomenon]:
+                        combined_data[phenomenon][unique_model_name] = {}
+                    combined_data[phenomenon][unique_model_name].update(file_data[phenomenon][model])
+
+                    model_to_file_map[unique_model_name] = json_file
+
     for phenomenon in phenomena:
         if phenomenon in combined_data:
-            for model in combined_data[phenomenon]:
-                if model not in data:
-                    data[model] = []
-                
-                # Convert counts to repeated names
+            for unique_model_name in combined_data[phenomenon]:
+                if unique_model_name not in data:
+                    data[unique_model_name] = []
+
                 names = []
-                for type_name, count in combined_data[phenomenon][model].items():
+                for type_name, count in combined_data[phenomenon][unique_model_name].items():
                     names.extend([type_name] * count)
-                
-                data[model].extend(names)
-                
-                # Add to LLMs category if not original data
-                if model not in humans:
+                    
+                data[unique_model_name].extend(names)
+
+                if 'human' not in unique_model_name.lower() and 'wsj' not in unique_model_name.lower() and 'wikipedia' not in unique_model_name.lower():
                     data['LLMs'].extend(names)
-    
-    return data
+
+    return data, model_to_file_map
 
 
 def load_data(directory, typs=['constr.txt']):
@@ -86,7 +98,7 @@ def calculate_shannon_diversity(names):
     name_counts = dd(int)
     for name in names:
         name_counts[name] += 1
-    
+
     total = len(names)
     diversity = 0
     for count in name_counts.values():
@@ -98,24 +110,21 @@ def calculate_shannon_diversity(names):
 def simpson_diversity_index(observations):
     """
     Calculate Simpson's Diversity Index from a list of observed species.
-
-    :param observations: list of species observations (e.g., ["cat", "dog", "cat", "bird"])
-    :return: Simpson's Diversity Index value
     """
     counts = Counter(observations).values()
     N = sum(counts)
-    
+
     if N <= 1:
         raise ValueError("Total number of observations must be greater than 1.")
 
     numerator = sum(n * n for n in counts)
     denominator = N * N
-    
+
     D = 1 - (numerator / denominator)
     return D
 
 
-def analyze_diversity(thing, data, output_dir):
+def analyze_diversity(thing, data, model_to_file_map, output_dir, json_files):
     """Analyze diversity metrics for the given data."""
     print(f"Analyzing diversity for: {thing}")
     print(f"Available models: {list(data.keys())}")
@@ -127,21 +136,20 @@ def analyze_diversity(thing, data, output_dir):
     diversity['Simpson'] = dict()
 
     for model in data:
-        if len(data[model]) > 1:  # Ensure we have enough data
+        if len(data[model]) > 1:
             diversity['Shannon'][model] = calculate_shannon_diversity(data[model])
             diversity['Simpson'][model] = simpson_diversity_index(data[model])
 
-    # Create visualizations and output files
+    file_to_color = {file: plt.cm.tab10(i) for i, file in enumerate(json_files)}
+
     for idx in ('Shannon', 'Simpson'):
         models = list(diversity[idx].keys())
         scores = list(diversity[idx].values())
 
-        # Sort data for better visualization
         sorted_indices = sorted(range(len(scores)), key=lambda k: scores[k])
         models_sorted = [models[i] for i in sorted_indices]
         scores_sorted = [scores[i] for i in sorted_indices]
 
-        # Create markdown table
         md_filename = os.path.join(output_dir, f"erg-llm-{thing.replace(' ', '-').lower()}-{idx.lower()}.md")
         with open(md_filename, 'w') as out:
             print("""| Model   | Diversity |
@@ -149,37 +157,39 @@ def analyze_diversity(thing, data, output_dir):
             for model, score in zip(models_sorted, scores_sorted):
                 print(f"| {model} | {score:.3f} |", file=out)
 
-        # Create Tufte-style plot
-        fig, ax = plt.subplots(figsize=(6, 3))
+        fig, ax = plt.subplots(figsize=(6, 4))
 
-        # Create different markers for different model types
         for i, (score, model) in enumerate(zip(scores_sorted, models_sorted)):
-            if model.lower() in nyt:
-                ax.scatter(score, i, color='black', s=40, marker='*')  # Star for NYT texts
+            source_file = model_to_file_map.get(model)
+            color = file_to_color.get(source_file, 'black')
+
+            if 'human' in model.lower():
+                ax.scatter(score, i, color=color, s=40, marker='*')
             elif model.lower() == 'llms':
-                ax.scatter(score, i, color='black', s=80, marker='o')  # Large circle for LLMs
+                ax.scatter(score, i, color='black', s=80, marker='o')
             else:
-                ax.scatter(score, i, color='black', s=20, marker='o')  # Regular dots
+                ax.scatter(score, i, color=color, s=20, marker='o')
 
         ax.set_yticks(range(len(models_sorted)))
         ax.set_yticklabels(models_sorted, fontsize=10)
-
         ax.tick_params(axis='x', labelsize=10)
         ax.set_xlabel('Score', fontsize=10)
 
-        # Tufte style - minimal borders
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.spines['bottom'].set_visible(True)
         ax.xaxis.set_ticks_position('bottom')
         ax.yaxis.set_ticks_position('none')
-
         ax.set_title(f"Diversity: {thing} ({idx} Index)", fontsize=12, fontweight='bold')
+
+        legend_patches = [mpatches.Patch(color=color, label=get_short_label_from_filepath(file))
+                          for file, color in file_to_color.items()]
+        ax.legend(handles=legend_patches, loc='best', fontsize='small', title='Source File')
 
         plt.tight_layout()
         png_filename = os.path.join(output_dir, f"llm-erg-{thing.replace(' ', '-').lower()}-{idx.lower()}.png")
         plt.savefig(png_filename, dpi=150, bbox_inches='tight')
-        plt.close()  # Close the figure to free memory
+        plt.close()
 
 
 def permutation_test(sample1, sample2, index='shannon', reps=10000, rng=None):
@@ -187,7 +197,6 @@ def permutation_test(sample1, sample2, index='shannon', reps=10000, rng=None):
     if rng is None:
         rng = np.random.default_rng()
 
-    # observed statistic
     calc = simpson_diversity_index if index == 'simpson' else calculate_shannon_diversity
     obs = abs(calc(sample1) - calc(sample2))
 
@@ -207,60 +216,51 @@ def permutation_test(sample1, sample2, index='shannon', reps=10000, rng=None):
 def main():
     parser = argparse.ArgumentParser(description='Analyze linguistic diversity from JSON files')
     parser.add_argument('json_files', nargs='+', help='JSON files containing linguistic data')
-    parser.add_argument('--phenomena', nargs='+', 
-                       choices=['lexrule', 'lextype', 'constr'],
-                       default=['lexrule', 'lextype', 'constr'],
-                       help='Phenomena to analyze (default: constr, lexrule, lextype)')
+    parser.add_argument('--phenomena', nargs='+',
+                        choices=['lexrule', 'lextype', 'constr'],
+                        default=['lexrule', 'lextype', 'constr'],
+                        help='Phenomena to analyze (default: constr, lexrule, lextype)')
     parser.add_argument('--num-bootstrap', type=int, default=10000,
-                       help='Number of bootstrap/permutation iterations (default: 10000)')
+                        help='Number of bootstrap/permutation iterations (default: 10000)')
     parser.add_argument('--output-dir', type=str, default='out',
-                       help='Output directory for generated files (default: out)')
-    
+                        help='Output directory for generated files (default: out)')
+
     args = parser.parse_args()
-    
-    # Create output directory if it doesn't exist
+
     os.makedirs(args.output_dir, exist_ok=True)
     print(f"Output files will be saved to: {args.output_dir}")
-    
-    # Map phenomena to analysis names
+
     phenomena_map = {
         'constr': 'Constructions',
-        'lexrule': 'Lexical Rules', 
+        'lexrule': 'Lexical Rules',
         'lextype': 'Lexical Types'
     }
-    
+
     for phenomenon in args.phenomena:
         thing = phenomena_map[phenomenon]
         print(f"\n=== Analyzing {thing} ===")
-        
-        # Load data from JSON files
-        data = load_data_from_json(args.json_files, [phenomenon])
-        
+
+        data, model_to_file_map = load_data_from_json(args.json_files, [phenomenon])
+
         if not data or len(data) <= 1:
             print(f"Insufficient data for {thing}. Skipping...")
             continue
-        
-        # Analyze diversity
-        analyze_diversity(thing, data, args.output_dir)
-        
-        # Perform statistical tests if we have both LLMs and original data
-        if 'LLMs' in data and any(model in data for model in nyt):
-            reference_data = []
-            for model in nyt:
-                if model in data:
-                    reference_data.extend(data[model]) 
+        analyze_diversity(thing, data, model_to_file_map, args.output_dir, args.json_files)
+
+        if 'LLMs' in data and any(model in data for model in ['original', 'new-original']):
+            reference_data = data.get('original', data.get('new-original'))
             if reference_data and len(data['LLMs']) > 1 and len(reference_data) > 1:
-                # Shannon diversity test
                 observed_diff, p_value, diffs = permutation_test(
                     data['LLMs'], reference_data, 'shannon', reps=args.num_bootstrap
                 )
-                print(f'Shannon {thing}; difference: {observed_diff:.4f}, p_value: {p_value:.4f} ({args.num_bootstrap} reps)')
-                
-                # Simpson diversity test
+                print(
+                    f'Shannon {thing}; difference: {observed_diff:.4f}, p_value: {p_value:.4f} ({args.num_bootstrap} reps)')
+
                 observed_diff, p_value, diffs = permutation_test(
                     data['LLMs'], reference_data, 'simpson', reps=args.num_bootstrap
                 )
-                print(f'Simpson {thing}; difference: {observed_diff:.4f}, p_value: {p_value:.4f} ({args.num_bootstrap} reps)')
+                print(
+                    f'Simpson {thing}; difference: {observed_diff:.4f}, p_value: {p_value:.4f} ({args.num_bootstrap} reps)')
 
 
 if __name__ == "__main__":

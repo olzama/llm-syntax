@@ -33,12 +33,16 @@ def traverse_derivation(deriv, types, preterminals, lex, depth, visited=None):
 def collect_types_multidir(data_dir, lex, lexentries, depth, sample_size=None):
     types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
     sorted_types = {'constr': {}, 'lexrule': {}, 'lextype': {}}
+    total_sen = 0
     for dataset in os.listdir(data_dir):
+        if dataset=='.DS_Store':
+            continue
         print(f"Processing dataset {dataset}...")
         db = itsdb.TestSuite(os.path.join(data_dir, dataset))
         items = list(db.processed_items())
-        if sample_size:
-            items = random.sample(items, sample_size)
+        if sample_size and len(items) > sample_size/len(os.listdir(data_dir)):
+            items = random.sample(items, int(sample_size/len(os.listdir(data_dir))))
+        total_sen += len(items)
         for response in items:
             if len(response['results']) > 0:
                 derivation_str = response['results'][0]['derivation']
@@ -52,6 +56,10 @@ def collect_types_multidir(data_dir, lex, lexentries, depth, sample_size=None):
                 traverse_derivation(deriv, types, preterminals, lex, depth)
     for relevant_dict in sorted_types:
         sorted_types[relevant_dict] = {k: v for k, v in sorted(types[relevant_dict].items(), key=lambda item: (item[1], item[0]), reverse=True)}
+    print("Total sentences processed across datasets:", total_sen)
+    print("Total syntactic types found:", len(sorted_types['constr']))
+    print("Total lexical rule types found:", len(sorted_types['lexrule']))
+    print("Total lexical types found:", len(sorted_types['lextype']))
     return sorted_types
 
 
@@ -62,6 +70,7 @@ def collect_types(data_dir, lex, lexentries, depth, sample_size=None):
     items = list(db.processed_items())
     if sample_size:
         items = random.sample(items, sample_size)
+    print("Total sentences processed:", len(items))
     for response in items:
         if len(response['results']) > 0:
             derivation_str = response['results'][0]['derivation']
@@ -75,6 +84,9 @@ def collect_types(data_dir, lex, lexentries, depth, sample_size=None):
             traverse_derivation(deriv, types, preterminals, lex, depth)
     for relevant_dict in sorted_types:
         sorted_types[relevant_dict] = {k: v for k, v in sorted(types[relevant_dict].items(), key=lambda item: (item[1], item[0]), reverse=True)}
+    print("Total syntactic types found:", len(sorted_types['constr']))
+    print("Total lexical rule types found:", len(sorted_types['lexrule']))
+    print("Total lexical types found:", len(sorted_types['lextype']))
     return sorted_types
 
 if __name__ == '__main__':
@@ -94,7 +106,7 @@ if __name__ == '__main__':
             model_types = collect_types(dataset_path, lex, lexentries[model], 1)
         for ctype in types:
             types[ctype][model] = model_types[ctype]
-    with open('./analysis/frequencies-json/frequencies-2023-repro.json', 'w', encoding='utf8') as f:
+    with open('./analysis/frequencies-json/frequencies-2025.json', 'w', encoding='utf8') as f:
        json.dump(types, f, ensure_ascii=False, indent=2)
 
 
