@@ -19,7 +19,7 @@ import argparse
 
 
 nyt =  ['original', 'original_2025', 'nyt_2023_human',  'nyt_human-2025']
-humans =  nyt + ['wsj', 'wikipedia']
+humans =  nyt + ['wsj', 'wikipedia', 'wescience']
 series = {"nyt":{"label": "Human (NYT)",
                  "color": "#B44E3A"},  # chestnut brown
           "human":{"label": "Human (WSJ/Wiki)", "color": "#D17F4A"},  # copper
@@ -153,7 +153,7 @@ def analyze_diversity(thing, data, model_to_file_map, output_dir, json_files):
         models_sorted = [models[i] for i in sorted_indices]
         scores_sorted = [scores[i] for i in sorted_indices]
 
-        md_filename = os.path.join(output_dir, f"erg-llm-{thing.replace(' ', '-').lower()}-{idx.lower()}.md")
+        md_filename = os.path.join(output_dir, f"llm-erg-{thing.replace(' ', '-').lower()}-{idx.lower()}.md")
         with open(md_filename, 'w') as out:
             print("""| Model   | Diversity |
 | --- | --- |""", file=out)
