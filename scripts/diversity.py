@@ -18,10 +18,109 @@ import json
 import argparse
 
 
+# Centralized style configuration
+series = {
+    "nyt": {
+        "label": "Human (NYT)",
+        "color": "#B44E3A",  # chestnut brown
+        "models": ['original', 'original_2025', 'nyt_2023_human', 'nyt_human-2025'],
+        "marker": "*",
+        "markersize_scatter": 40,
+        "markersize_line": 10,
+        "linestyle": "-",
+        "linewidth": 2
+    },
+    "human": {
+        "label": "Human (WSJ/Wiki)",
+        "color": "#D17F4A",  # copper
+        "models": ['wsj', 'wikipedia', 'wescience'],
+        "marker": "+",
+        "markersize_scatter": 40,
+        "markersize_line": 8,
+        "linestyle": "-",
+        "linewidth": 2
+    },
+    "llm2023": {
+        "label": "LLM (2023)",
+        "color": "#3A6DB4",  # cobalt blue
+        "models": [],  # determined by year in name
+        "marker": "o",
+        "markersize_scatter": 20,
+        "markersize_line": 6,
+        "linestyle": "--",
+        "linewidth": 1.5
+    },
+    "llm2025": {
+        "label": "LLM (2025)",
+        "color": "#4AA6B4",  # teal-blue
+        "models": [],  # determined by year in name
+        "marker": "o",
+        "markersize_scatter": 20,
+        "markersize_line": 6,
+        "linestyle": "--",
+        "linewidth": 1.5
+    },
+    "llms": {
+        "label": "LLM (all)",
+        "color": "black",
+        "models": ['LLMs'],
+        "marker": "o",
+        "markersize_scatter": 80,
+        "markersize_line": 8,
+        "linestyle": "-",
+        "linewidth": 2.5
+    }
+}
+
+# Convenience lists
+nyt_models = series["nyt"]["models"]
+human_models = series["nyt"]["models"] + series["human"]["models"]
+all_human_models = human_models.copy()
+
+
+def get_series_key(model_name):
+    """Determine which series a model belongs to."""
+    mname = model_name.lower().split(' (')[0]
+    
+    # Check explicit model lists
+    for key in ['nyt', 'human', 'llms']:
+        if mname in [m.lower() for m in series[key]["models"]]:
+            return key
+    
+    # Check LLM year-based categories
+    if '2023' in model_name.lower():
+        return 'llm2023'
+    elif '2025' in model_name.lower():
+        return 'llm2025'
+    
+    # Default to llm2025 for other LLMs
+    return 'llm2025'
+
+
+def is_human_model(model_name):
+    """Check if a model is a human dataset."""
+    mname = model_name.lower().split(' (')[0]
+    return mname in [m.lower() for m in all_human_models]
+
+
 def get_short_label_from_filepath(filepath):
     """Extracts a pattern like '1K', '3K' etc., from a filename for a concise label."""
     base_name = os.path.splitext(os.path.basename(filepath))[0]
     match = re.search(r'(\d+[kK])', base_name)
+    if match:
+        return match.group(1).upper()
+    return base_name
+
+
+def get_year_from_filepath(filepath):
+    """
+    Extracts the year from a filename for a concise label.
+    This should be in the model name
+    """
+    if filepath.endswith('wsj.json'):
+        return "2023"
+    base_name = os.path.splitext(os.path.basename(filepath))[0]
+    match = re.search(r'(20\d\d)', base_name)
     if match:
         return match.group(1).upper()
     return base_name
@@ -43,8 +142,8 @@ def load_data_from_json(json_files, phenomena=['constr']):
                     combined_data[phenomenon] = {}
                 for model in file_data[phenomenon]:
                     short_label = get_short_label_from_filepath(json_file)
-                    unique_model_name = f"{model} ({short_label})"
-
+                    year = get_year_from_filepath(json_file)
+                    unique_model_name = f"{model} ({year})"
                     if unique_model_name not in combined_data[phenomenon]:
                         combined_data[phenomenon][unique_model_name] = {}
                     combined_data[phenomenon][unique_model_name].update(file_data[phenomenon][model])
@@ -60,34 +159,14 @@ def load_data_from_json(json_files, phenomena=['constr']):
                 names = []
                 for type_name, count in combined_data[phenomenon][unique_model_name].items():
                     names.extend([type_name] * count)
-
+                    
                 data[unique_model_name].extend(names)
 
-                if 'human' not in unique_model_name.lower() and 'wsj' not in unique_model_name.lower() and 'wikipedia' not in unique_model_name.lower():
+                # Add to LLMs if not a human model
+                if not is_human_model(unique_model_name):
                     data['LLMs'].extend(names)
 
     return data, model_to_file_map
-
-
-def load_data(directory, typs=['constr.txt']):
-    """Load cc text files in the given directory (legacy function)."""
-    data = {}
-    data['LLMs'] = []
-    for filename in os.listdir(directory):
-        for typ in typs:
-            filepath = os.path.join(directory, filename, typ)
-            if os.path.exists(filepath):
-                with open(filepath, 'r', encoding='utf-8') as file:
-                    names = []
-                    for line in file:
-                        parts = line.strip().split()
-                        if len(parts) == 2:
-                            name, frequency = parts[1], int(parts[0])
-                            names.extend([name] * frequency)
-                data[filename] = names
-                if 'human' not in filename:
-                    data['LLMs'] += names
-    return data
 
 
 def calculate_shannon_diversity(names):
@@ -121,6 +200,169 @@ def simpson_diversity_index(observations):
     return D
 
 
+def learning_curve_analysis(thing, data, output_dir, n_bins=5):
+    """
+    Analyze learning curves for diversity metrics.
+    
+    Args:
+        thing: Name of the phenomenon being analyzed
+        data: Dictionary of model data
+        output_dir: Directory for output files
+        n_bins: Number of bins to divide data into (default 5 for ~20% each)
+    """
+    print(f"\n=== Learning Curve Analysis for {thing} ===")
+    print(f"Using {n_bins} bins (~{100/n_bins:.0f}% each)")
+    
+    # Prepare data for learning curves
+    learning_data = {}
+    
+    for model in data:
+        if len(data[model]) > n_bins:  # Need enough data for bins
+            # Shuffle data to avoid ordering bias
+            shuffled = data[model].copy()
+            random.shuffle(shuffled)
+            learning_data[model] = shuffled
+    
+    if not learning_data:
+        print("Insufficient data for learning curve analysis")
+        return
+    
+    # Calculate diversity for each cumulative bin
+    results = {
+        'Shannon': {},
+        'Simpson': {}
+    }
+    
+    for model in learning_data:
+        print(f"  Processing {model} ({len(learning_data[model])} samples)...")
+        results['Shannon'][model] = []
+        results['Simpson'][model] = []
+        
+        total_samples = len(learning_data[model])
+        
+        # Incremental counting for efficiency
+        name_counts = dd(int)
+        
+        for i in range(1, n_bins + 1):
+            end_idx = int((i / n_bins) * total_samples)
+            start_idx = int(((i-1) / n_bins) * total_samples) if i > 1 else 0
+            
+            # Update counts incrementally
+            for name in learning_data[model][start_idx:end_idx]:
+                name_counts[name] += 1
+            
+            current_total = end_idx
+            
+            if current_total > 1:
+                # Shannon calculation
+                shannon_div = 0
+                for count in name_counts.values():
+                    p = count / current_total
+                    shannon_div -= p * math.log(p)
+                results['Shannon'][model].append(shannon_div)
+                
+                # Simpson calculation
+                numerator = sum(n * n for n in name_counts.values())
+                simpson_div = 1 - (numerator / (current_total * current_total))
+                results['Simpson'][model].append(simpson_div)
+    
+    # Create learning curve plots with color scheme
+    for index_type in ['Shannon', 'Simpson']:
+        fig, ax = plt.subplots(figsize=(12, 5))
+        
+        # Calculate percentage labels for x-axis
+        x_values = [(i / n_bins) * 100 for i in range(1, n_bins + 1)]
+        
+        # Organize models by category for the legend
+        models_by_category = {}
+        for k in ['nyt', 'human', 'llm2023', 'llm2025', 'llms']:
+            models_by_category[k] = []
+        
+        # Plot each model's learning curve
+        for model in results[index_type]:
+            if results[index_type][model]:
+                # Get style for this model
+                series_key = get_series_key(model)
+                style = series[series_key]
+                models_by_category[series_key].append(model)
+                
+                ax.plot(x_values, results[index_type][model], 
+                       marker=style["marker"], 
+                       linestyle=style["linestyle"], 
+                       linewidth=style["linewidth"], 
+                       markersize=style["markersize_line"],
+                       color=style["color"], 
+                       label=model, 
+                       alpha=0.8)
+        
+        ax.set_xlabel('Percentage of Data (%)', fontsize=11)
+        ax.set_ylabel(f'{index_type} Diversity Index', fontsize=11)
+        ax.set_title(f'Learning Curve: {thing} ({index_type} Index)', 
+                    fontsize=12, fontweight='bold')
+        
+        # Tufte style
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.grid(True, alpha=0.3, linestyle='--')
+        
+        # Create custom legend on the left showing models organized by category
+        legend_elements = []
+        legend_labels = []
+        
+        # Add header
+        legend_labels.append("Models (by initial value):")
+        legend_elements.append(plt.Line2D([0], [0], color='none'))
+        
+        # Sort models within each category by their initial value
+        for k in ['nyt', 'human', 'llm2023', 'llm2025', 'llms']:
+            if models_by_category[k]:
+                # Sort by initial diversity value
+                sorted_models = sorted(models_by_category[k], 
+                                     key=lambda m: results[index_type][m][0] if results[index_type][m] else 0)
+                
+                # Add category header
+                legend_labels.append(f"\n{series[k]['label']}:")
+                legend_elements.append(plt.Line2D([0], [0], color='none'))
+                
+                # Add each model with its marker
+                for model in sorted_models:
+                    legend_elements.append(plt.Line2D([0], [0], 
+                                                     marker=series[k]['marker'],
+                                                     color=series[k]['color'],
+                                                     linestyle=series[k]['linestyle'],
+                                                     markersize=6,
+                                                     linewidth=1.5))
+                    legend_labels.append(f"  {model}")
+        
+        # Place legend on the left side
+        ax.legend(legend_elements, legend_labels, 
+                 loc='center left', bbox_to_anchor=(-0.35, 0.5),
+                 fontsize=8, frameon=True, framealpha=0.9)
+        
+        plt.tight_layout()
+        
+        # Save plot
+        filename = os.path.join(output_dir, 
+                               f"learning-curve-{thing.replace(' ', '-').lower()}-{index_type.lower()}.png")
+        plt.savefig(filename, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        print(f"Saved learning curve: {filename}")
+    
+    # Print summary statistics
+    print("\nLearning Curve Summary:")
+    for index_type in ['Shannon', 'Simpson']:
+        print(f"\n{index_type} Index:")
+        for model in results[index_type]:
+            if results[index_type][model]:
+                initial = results[index_type][model][0]
+                final = results[index_type][model][-1]
+                change = final - initial
+                pct_change = (change / initial) * 100 if initial > 0 else 0
+                print(f"  {model}: {initial:.3f} → {final:.3f} "
+                      f"(+{change:.3f}, {pct_change:+.1f}%)")
+
+
 def analyze_diversity(thing, data, model_to_file_map, output_dir, json_files):
     """Analyze diversity metrics for the given data."""
     print(f"Analyzing diversity for: {thing}")
@@ -137,8 +379,6 @@ def analyze_diversity(thing, data, model_to_file_map, output_dir, json_files):
             diversity['Shannon'][model] = calculate_shannon_diversity(data[model])
             diversity['Simpson'][model] = simpson_diversity_index(data[model])
 
-    file_to_color = {file: plt.cm.tab10(i) for i, file in enumerate(json_files)}
-
     for idx in ('Shannon', 'Simpson'):
         models = list(diversity[idx].keys())
         scores = list(diversity[idx].values())
@@ -147,7 +387,7 @@ def analyze_diversity(thing, data, model_to_file_map, output_dir, json_files):
         models_sorted = [models[i] for i in sorted_indices]
         scores_sorted = [scores[i] for i in sorted_indices]
 
-        md_filename = os.path.join(output_dir, f"erg-llm-{thing.replace(' ', '-').lower()}-{idx.lower()}.md")
+        md_filename = os.path.join(output_dir, f"llm-erg-{thing.replace(' ', '-').lower()}-{idx.lower()}.md")
         with open(md_filename, 'w') as out:
             print("""| Model   | Diversity |
 | --- | --- |""", file=out)
@@ -157,16 +397,14 @@ def analyze_diversity(thing, data, model_to_file_map, output_dir, json_files):
         fig, ax = plt.subplots(figsize=(6, 4))
 
         for i, (score, model) in enumerate(zip(scores_sorted, models_sorted)):
-            source_file = model_to_file_map.get(model)
-            color = file_to_color.get(source_file, 'black')
-
-            if 'human' in model.lower():
-                ax.scatter(score, i, color=color, s=40, marker='*')
-            elif model.lower() == 'llms':
-                ax.scatter(score, i, color='black', s=80, marker='o')
-            else:
-                ax.scatter(score, i, color=color, s=20, marker='o')
-
+            series_key = get_series_key(model)
+            style = series[series_key]
+            
+            ax.scatter(score, i, 
+                      color=style["color"], 
+                      s=style["markersize_scatter"], 
+                      marker=style["marker"])
+                    
         ax.set_yticks(range(len(models_sorted)))
         ax.set_yticklabels(models_sorted, fontsize=10)
         ax.tick_params(axis='x', labelsize=10)
@@ -179,9 +417,10 @@ def analyze_diversity(thing, data, model_to_file_map, output_dir, json_files):
         ax.yaxis.set_ticks_position('none')
         ax.set_title(f"Diversity: {thing} ({idx} Index)", fontsize=12, fontweight='bold')
 
-        legend_patches = [mpatches.Patch(color=color, label=get_short_label_from_filepath(file))
-                          for file, color in file_to_color.items()]
-        ax.legend(handles=legend_patches, loc='best', fontsize='small', title='Source File')
+        legend_patches = [mpatches.Patch(color=series[k]['color'],
+                                         label=series[k]['label']) 
+                         for k in ['nyt', 'human', 'llm2023', 'llm2025', 'llms']]
+        ax.legend(handles=legend_patches, loc='best', fontsize='small', title='Model Type')
 
         plt.tight_layout()
         png_filename = os.path.join(output_dir, f"llm-erg-{thing.replace(' ', '-').lower()}-{idx.lower()}.png")
@@ -214,13 +453,15 @@ def main():
     parser = argparse.ArgumentParser(description='Analyze linguistic diversity from JSON files')
     parser.add_argument('json_files', nargs='+', help='JSON files containing linguistic data')
     parser.add_argument('--phenomena', nargs='+',
-                        choices=['lexrule', 'lextype', 'constr'],
-                        default=['lexrule', 'lextype', 'constr'],
-                        help='Phenomena to analyze (default: constr, lexrule, lextype)')
-    parser.add_argument('--num-bootstrap', type=int, default=10000,
-                        help='Number of bootstrap/permutation iterations (default: 10000)')
+                        choices=['constr', 'lexrule', 'lextype'],
+                        default=['constr', 'lextype', 'lexrule'],
+                        help='Phenomena to analyze (default: constr, lextype, lexrule)')
+    parser.add_argument('--num-bootstrap', type=int, default=1,
+                        help='Number of bootstrap/permutation iterations (default: 1)')
     parser.add_argument('--output-dir', type=str, default='out',
                         help='Output directory for generated files (default: out)')
+    parser.add_argument('--learning', type=int, metavar='N',
+                        help='Generate learning curves with N bins (e.g., 5 for ~20%% each)')
 
     args = parser.parse_args()
 
@@ -242,11 +483,19 @@ def main():
         if not data or len(data) <= 1:
             print(f"Insufficient data for {thing}. Skipping...")
             continue
-
+            
+        # Run learning curve analysis if requested
+        if args.learning:
+            learning_curve_analysis(thing, data, args.output_dir, n_bins=args.learning)
+            
         analyze_diversity(thing, data, model_to_file_map, args.output_dir, args.json_files)
-
-        if 'LLMs' in data and any(model in data for model in ['original', 'new-original']):
-            reference_data = data.get('original', data.get('new-original'))
+        
+        # Perform statistical tests if we have both LLMs and original data
+        if 'LLMs' in data and any(model in data for model in nyt_models):
+            reference_data = []
+            for model in nyt_models:
+                if model in data:
+                    reference_data.extend(data[model]) 
             if reference_data and len(data['LLMs']) > 1 and len(reference_data) > 1:
                 observed_diff, p_value, diffs = permutation_test(
                     data['LLMs'], reference_data, 'shannon', reps=args.num_bootstrap

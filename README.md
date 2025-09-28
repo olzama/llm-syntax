@@ -61,6 +61,11 @@ python diversity.py [JSON_FILES...] [OPTIONS]
 
 #### Examples
 
+Current advised settings:
+```
+uv run scripts/diversity.py --num-bootstrap 1 analysis/frequencies-json/frequencies-2025.json analysis/frequencies-json/frequencies-2023-repro.json 
+```
+
 Basic usage with default settings (using uv for dependencies):
 ```bash
 uv run scripts/diversity.py analysis/frequencies-json/*.json 
