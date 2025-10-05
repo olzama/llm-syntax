@@ -17,13 +17,15 @@ from collections import Counter
 import json
 import argparse
 
+punct = True
+ignored_models = ['tinyllama-2025-llm']
 
 # Centralized style configuration
 series = {
     "nyt": {
         "label": "Human (NYT)",
         "color": "#B44E3A",  # chestnut brown
-        "models": ['original', 'original_2025', 'nyt_2023_human', 'nyt_human-2025'],
+        "models": ['original', 'original_2025', 'nyt_2023_human', 'nyt_human-2025', 'nyt-2025-human'],
         "marker": "*",
         "markersize_scatter": 40,
         "markersize_line": 10,
@@ -69,7 +71,28 @@ series = {
         "markersize_line": 8,
         "linestyle": "-",
         "linewidth": 2.5
-    }
+    },
+    "llms2023": {
+        "label": "LLMs (2023)",
+        "color": "#3A6DB4",  # cobalt blue
+        "models": [],  # determined by year in name
+        "marker": "o",
+        "markersize_scatter": 60,
+        "markersize_line": 8,
+        "linestyle": "--",
+        "linewidth": 1.5
+    },
+    "llms2025": {
+        "label": "LLMs (2025)",
+        "color": "#4AA6B4",  # teal-blue
+        "models": [],  # determined by year in name
+        "marker": "o",
+        "markersize_scatter": 60,
+        "markersize_line": 8,
+        "linestyle": "--",
+        "linewidth": 1.5
+    },
+    
 }
 
 # Convenience lists
@@ -78,21 +101,30 @@ human_models = series["nyt"]["models"] + series["human"]["models"]
 all_human_models = human_models.copy()
 
 
+
 def get_series_key(model_name):
     """Determine which series a model belongs to."""
+   
+    if model_name == 'LLMs (2023)':
+        return 'llms2023'
+    elif model_name == 'LLMs (2025)':
+        return 'llms2025'
+
     mname = model_name.lower().split(' (')[0]
+ 
     
     # Check explicit model lists
     for key in ['nyt', 'human', 'llms']:
         if mname in [m.lower() for m in series[key]["models"]]:
             return key
-    
+
     # Check LLM year-based categories
-    if '2023' in model_name.lower():
+    if '(2023)' in model_name.lower():
         return 'llm2023'
-    elif '2025' in model_name.lower():
+    elif '(2025)' in model_name.lower():
         return 'llm2025'
-    
+   
+     
     # Default to llm2025 for other LLMs
     return 'llm2025'
 
@@ -125,15 +157,58 @@ def get_year_from_filepath(filepath):
         return match.group(1).upper()
     return base_name
 
-
 def load_data_from_json(json_files, phenomena=['constr']):
-    """Load data from JSON files with the specified structure."""
+    """
+    Load and aggregate linguistic phenomenon data from multiple JSON files.
+    
+    This function processes JSON files containing linguistic analysis results for different
+    language models, combining data across files and organizing it by phenomenon type first,
+    then by model. It creates aggregated categories for all LLMs and year-specific LLM groups.
+    
+    Args:
+        json_files (list of str): Paths to JSON files to load. Each file should contain
+            data structured as: {phenomenon: {model: {type_name: count, ...}, ...}, ...}
+        phenomena (list of str, optional): List of phenomenon types to extract from the
+            JSON files. Defaults to ['constr'] (constructions).
+    
+    Returns:
+        tuple: A tuple containing:
+            - data (dict): Dictionary structured as {phenomenon: {model: [instances], ...}, ...}
+              where:
+                * First level keys are phenomenon names (e.g., 'constr', 'syntax')
+                * Second level keys include:
+                    - Individual model names in format "ModelName (year)"
+                    - 'LLMs': All non-human model instances combined
+                    - 'LLMs (2023)': All 2023 model instances combined
+                    - 'LLMs (2025)': All 2025 model instances combined
+                * Values are lists where each phenomenon type appears count times.
+            - model_to_file_map (dict): Dictionary mapping unique model names 
+              (format: "ModelName (year)") to their source JSON file paths.
+    
+    Example:
+        >>> files = ['results_2023.json', 'results_2025.json']
+        >>> data, file_map = load_data_from_json(files, phenomena=['constr', 'syntax'])
+        >>> print(data.keys())
+        dict_keys(['constr', 'syntax'])
+        >>> print(data['constr'].keys())
+        dict_keys(['GPT-4 (2023)', 'Claude (2025)', 'LLMs', 'LLMs (2023)', 'LLMs (2025)'])
+        >>> print(len(data['constr']['LLMs']))  # Total count for this phenomenon
+        1247
+    
+    Notes:
+        - Model names are made unique by appending the year from the filename in 
+          parentheses (extracted via get_year_from_filepath).
+        - Human models (identified via is_human_model) are excluded from the aggregate
+          'LLMs' categories.
+        - Count values in the source JSON are expanded into repeated instances in the
+          output lists (e.g., {"passive": 3} becomes ["passive", "passive", "passive"]).
+        - If a phenomenon doesn't exist in the source data, it's silently skipped.
+    """
     data = {}
-    data['LLMs'] = []
-
     model_to_file_map = {}
-
     combined_data = {}
+    
+    # Load and combine data from all JSON files
     for json_file in json_files:
         with open(json_file, 'r', encoding='utf-8') as f:
             file_data = json.load(f)
@@ -141,32 +216,92 @@ def load_data_from_json(json_files, phenomena=['constr']):
                 if phenomenon not in combined_data:
                     combined_data[phenomenon] = {}
                 for model in file_data[phenomenon]:
-                    short_label = get_short_label_from_filepath(json_file)
+                    if model in ignored_models:
+                        continue
                     year = get_year_from_filepath(json_file)
                     unique_model_name = f"{model} ({year})"
                     if unique_model_name not in combined_data[phenomenon]:
                         combined_data[phenomenon][unique_model_name] = {}
-                    combined_data[phenomenon][unique_model_name].update(file_data[phenomenon][model])
-
+                    combined_data[phenomenon][unique_model_name].update(
+                        file_data[phenomenon][model]
+                    )
                     model_to_file_map[unique_model_name] = json_file
-
+    
+    # Extract and expand data for requested phenomena
     for phenomenon in phenomena:
         if phenomenon in combined_data:
+            # Initialize the phenomenon dict with aggregate categories
+            data[phenomenon] = {
+                'LLMs': [],
+                'LLMs (2023)': [],
+                'LLMs (2025)': []
+            }
+            
             for unique_model_name in combined_data[phenomenon]:
-                if unique_model_name not in data:
-                    data[unique_model_name] = []
-
-                names = []
+                # Initialize model's data list
+                data[phenomenon][unique_model_name] = []
+                
+                # Expand counts into repeated instances
                 for type_name, count in combined_data[phenomenon][unique_model_name].items():
-                    names.extend([type_name] * count)
+                    names = [type_name] * count
+                    data[phenomenon][unique_model_name].extend(names)
                     
-                data[unique_model_name].extend(names)
-
-                # Add to LLMs if not a human model
-                if not is_human_model(unique_model_name):
-                    data['LLMs'].extend(names)
-
+                    # Add to aggregate LLM categories (excluding human models)
+                    if not is_human_model(unique_model_name):
+                        data[phenomenon]['LLMs'].extend(names)
+                        if '(2023)' in unique_model_name:
+                            data[phenomenon]['LLMs (2023)'].extend(names)
+                        elif '(2025)' in unique_model_name:
+                            data[phenomenon]['LLMs (2025)'].extend(names)
+                    
     return data, model_to_file_map
+
+def split_punct(data):
+    """
+    For each phenomenon, add two new ones: one with punctuation types and one without.
+    
+    Creates new phenomenon categories by splitting each existing phenomenon into:
+    - phenomenon_punct: Contains only types identified as punctuation-related
+    - phenomenon_xpunct: Contains only types NOT identified as punctuation-related
+    
+    Args:
+        data (dict): Dictionary structured as {phenomenon: {model: [type_instances], ...}, ...}
+    
+    Returns:
+        dict: Original data augmented with _punct and _xpunct variants for each phenomenon.
+    
+    Example:
+        >>> data = {'constr': {'GPT-4 (2023)': ['pt_comma', 'passive', 'pct_period']}}
+        >>> result = split_punct(data)
+        >>> print(result.keys())
+        dict_keys(['constr', 'constr_punct', 'constr_xpunct'])
+        >>> print(result['constr_punct']['GPT-4 (2023)'])
+        ['pt_comma', 'pct_period']
+        >>> print(result['constr_xpunct']['GPT-4 (2023)'])
+        ['passive']
+    
+    Notes:
+        - Punctuation types are identified by: starting with 'pt', containing 'pct', 
+          or ending with 'plr'
+        - Original phenomenon data remains unchanged
+        - Uses defaultdict(list) for new phenomena to handle missing models gracefully
+    """
+    def is_punct(type_name):
+        if type_name.startswith('pt') or ('pct' in type_name) or type_name.endswith('plr'):
+            return True
+        else:
+            return False
+        
+    for phenomenon in list(data.keys()):  # Use list() to avoid modifying dict during iteration
+        data[f"{phenomenon}_punct"] = dd(list)
+        data[f"{phenomenon}_xpunct"] = dd(list)
+        for model in data[phenomenon]:
+            # Filter by is_punct
+            data[f"{phenomenon}_punct"][model] = [t for t in data[phenomenon][model] if is_punct(t)]
+            data[f"{phenomenon}_xpunct"][model] = [t for t in data[phenomenon][model] if not is_punct(t)]
+    
+    return data
+
 
 
 def calculate_shannon_diversity(names):
@@ -266,7 +401,7 @@ def learning_curve_analysis(thing, data, output_dir, n_bins=5):
                 simpson_div = 1 - (numerator / (current_total * current_total))
                 results['Simpson'][model].append(simpson_div)
     
-    # Create learning curve plots with color scheme
+    # Creae learning curve plots with color scheme
     for index_type in ['Shannon', 'Simpson']:
         fig, ax = plt.subplots(figsize=(12, 5))
         
@@ -462,23 +597,37 @@ def main():
                         help='Output directory for generated files (default: out)')
     parser.add_argument('--learning', type=int, metavar='N',
                         help='Generate learning curves with N bins (e.g., 5 for ~20%% each)')
-
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
     print(f"Output files will be saved to: {args.output_dir}")
 
-    phenomena_map = {
-        'constr': 'Constructions',
-        'lexrule': 'Lexical Rules',
-        'lextype': 'Lexical Types'
-    }
+    def name_phenomenon(phenomenon):
+        phenomena_map = {
+            'constr': 'Constructions',
+            'lexrule': 'Lexical Rules',
+            'lextype': 'Lexical Types'
+        }
+        parts = phenomenon.split('_')
+        
+        name = phenomena_map[parts[0]]
+        if len(parts) > 1:
+            if parts[1] == 'punct':
+                name += ' (punctuation only)'
+            elif parts[1] == 'xpunct':
+                name += ' (no punctuation)'
+        return name
+            
 
-    for phenomenon in args.phenomena:
-        thing = phenomena_map[phenomenon]
+    all_data, model_to_file_map = load_data_from_json(args.json_files,
+                                                      args.phenomena)
+    all_data=split_punct(all_data)
+     
+    for phenomenon in all_data:
+        thing = name_phenomenon(phenomenon)
         print(f"\n=== Analyzing {thing} ===")
 
-        data, model_to_file_map = load_data_from_json(args.json_files, [phenomenon])
+        data = all_data[phenomenon]
 
         if not data or len(data) <= 1:
             print(f"Insufficient data for {thing}. Skipping...")
