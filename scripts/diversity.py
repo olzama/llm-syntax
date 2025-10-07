@@ -232,7 +232,7 @@ def load_data_from_json(json_files, phenomena=['constr']):
         if phenomenon in combined_data:
             # Initialize the phenomenon dict with aggregate categories
             data[phenomenon] = {
-                'LLMs': [],
+#                'LLMs': [],
                 'LLMs (2023)': [],
                 'LLMs (2025)': []
             }
@@ -248,7 +248,7 @@ def load_data_from_json(json_files, phenomena=['constr']):
                     
                     # Add to aggregate LLM categories (excluding human models)
                     if not is_human_model(unique_model_name):
-                        data[phenomenon]['LLMs'].extend(names)
+                        #data[phenomenon]['LLMs'].extend(names)
                         if '(2023)' in unique_model_name:
                             data[phenomenon]['LLMs (2023)'].extend(names)
                         elif '(2025)' in unique_model_name:
@@ -410,7 +410,7 @@ def learning_curve_analysis(thing, data, output_dir, n_bins=5):
         
         # Organize models by category for the legend
         models_by_category = {}
-        for k in ['nyt', 'human', 'llm2023', 'llm2025', 'llms']:
+        for k in ['nyt', 'human', 'llm2023', 'llm2025']:
             models_by_category[k] = []
         
         # Plot each model's learning curve
@@ -418,9 +418,14 @@ def learning_curve_analysis(thing, data, output_dir, n_bins=5):
             if results[index_type][model]:
                 # Get style for this model
                 series_key = get_series_key(model)
+                if series_key.startswith('llms'):
+                    continue ## ignore aggregates
                 style = series[series_key]
                 models_by_category[series_key].append(model)
                 
+                if len(x_values) != len(results[index_type][model]):
+                    print (f"WARNING: x != y for model {model}")
+                    continue
                 ax.plot(x_values, results[index_type][model], 
                        marker=style["marker"], 
                        linestyle=style["linestyle"], 
@@ -449,7 +454,7 @@ def learning_curve_analysis(thing, data, output_dir, n_bins=5):
         legend_elements.append(plt.Line2D([0], [0], color='none'))
         
         # Sort models within each category by their initial value
-        for k in ['nyt', 'human', 'llm2023', 'llm2025', 'llms']:
+        for k in ['nyt', 'human', 'llm2023', 'llm2025']:
             if models_by_category[k]:
                 # Sort by initial diversity value
                 sorted_models = sorted(models_by_category[k], 
@@ -554,7 +559,7 @@ def analyze_diversity(thing, data, model_to_file_map, output_dir, json_files):
 
         legend_patches = [mpatches.Patch(color=series[k]['color'],
                                          label=series[k]['label']) 
-                         for k in ['nyt', 'human', 'llm2023', 'llm2025', 'llms']]
+                         for k in ['nyt', 'human', 'llms2023', 'llms2025', 'llms']]
         ax.legend(handles=legend_patches, loc='best', fontsize='small', title='Model Type')
 
         plt.tight_layout()
