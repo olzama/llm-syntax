@@ -15,15 +15,14 @@ def traverse_derivation(deriv, types, preterminals, lex, depths, visited=None):
     if isinstance(deriv, derivation.UDFNode):
         for node in deriv.daughters:
             if isinstance(node, derivation.UDFNode):
-                type = node.entity
                 if node.entity in preterminals:
                     for depth in depths:
                         supertypes = get_n_supertypes(lex, node.entity, depth)
                         if supertypes and len(supertypes) >= depth:
-                            type = list(supertypes[depth-1])[0]
-                            if not type in types[depth]:
-                                types[depth][type] = 0
-                            types[depth][type] += 1
+                            t = "__".join(map(str, supertypes[depth-1]))
+                            if not t in types[depth]:
+                                types[depth][t] = 0
+                            types[depth][t] += 1
                 traverse_derivation(node, types, preterminals, lex, depths, visited)
 
 def collect_lextypes_multidir(data_dir, lex, depths, sample_size=None):
