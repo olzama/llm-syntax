@@ -1,667 +1,268 @@
-# /// script
-# dependencies = [
-#   "numpy",
-#   "matplotlib",
-# ]
-# ///
+#!/usr/bin/env python3
+"""
+diversity.py — legacy-format diversity analysis with 'lexentries' support
 
-import os
-import math
-import re
-import random
-import numpy as np
-from collections import defaultdict as dd
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from collections import Counter
-import json
-import argparse
-
-punct = True
-ignored_models = ['tinyllama-2025-llm']
-
-# Centralized style configuration
-series = {
-    "nyt": {
-        "label": "Human (NYT)",
-        "color": "#B44E3A",  # chestnut brown
-        "models": ['original', 'original_2025', 'nyt_2023_human', 'nyt_human-2025', 'nyt-2025-human'],
-        "marker": "*",
-        "markersize_scatter": 40,
-        "markersize_line": 10,
-        "linestyle": "-",
-        "linewidth": 2
-    },
-    "human": {
-        "label": "Human (WSJ/Wiki)",
-        "color": "#D17F4A",  # copper
-        "models": ['wsj', 'wikipedia', 'wescience'],
-        "marker": "+",
-        "markersize_scatter": 40,
-        "markersize_line": 8,
-        "linestyle": "-",
-        "linewidth": 2
-    },
-    "llm2023": {
-        "label": "LLM (2023)",
-        "color": "#3A6DB4",  # cobalt blue
-        "models": [],  # determined by year in name
-        "marker": "o",
-        "markersize_scatter": 20,
-        "markersize_line": 6,
-        "linestyle": "--",
-        "linewidth": 1.5
-    },
-    "llm2025": {
-        "label": "LLM (2025)",
-        "color": "#4AA6B4",  # teal-blue
-        "models": [],  # determined by year in name
-        "marker": "o",
-        "markersize_scatter": 20,
-        "markersize_line": 6,
-        "linestyle": "--",
-        "linewidth": 1.5
-    },
-    "llms": {
-        "label": "LLM (all)",
-        "color": "black",
-        "models": ['LLMs'],
-        "marker": "o",
-        "markersize_scatter": 80,
-        "markersize_line": 8,
-        "linestyle": "-",
-        "linewidth": 2.5
-    },
-    "llms2023": {
-        "label": "LLMs (2023)",
-        "color": "#3A6DB4",  # cobalt blue
-        "models": [],  # determined by year in name
-        "marker": "o",
-        "markersize_scatter": 60,
-        "markersize_line": 8,
-        "linestyle": "--",
-        "linewidth": 1.5
-    },
-    "llms2025": {
-        "label": "LLMs (2025)",
-        "color": "#4AA6B4",  # teal-blue
-        "models": [],  # determined by year in name
-        "marker": "o",
-        "markersize_scatter": 60,
-        "markersize_line": 8,
-        "linestyle": "--",
-        "linewidth": 1.5
-    },
-    
+Input format (OLD):
+{
+  "constr":    { "<model>": { "<type>": count, ... }, ... },
+  "lexrule":   { "<model>": { "<type>": count, ... }, ... },
+  "lextype":   { "<model>": { "<type>": count, ... }, ... },
+  "lexentries":{ "<model>": { "<type>": count, ... }, ... }  # NEW
 }
 
-# Convenience lists
-nyt_models = series["nyt"]["models"]
-human_models = series["nyt"]["models"] + series["human"]["models"]
-all_human_models = human_models.copy()
+Features
+- Accepts multiple JSON files; merges counts by phenomenon/model/type.
+- Phenomena supported: constr, lexrule, lextype, lexentries.
+- Computes Shannon (nats) and Simpson diversity per model.
+- Per-phenomenon scatter plots with cohort styling:
+    * LLMs (2023): blue circle
+    * LLMs (2025): teal circle
+    * Human (NYT): chestnut star *
+    * Human (WSJ/Wiki/other): copper '+'
+- Legend matches plotted markers/colors and only shows series that appear.
+"""
+
+import argparse
+import json
+import math
+import os
+import re
+from collections import defaultdict as dd, Counter
+
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import numpy as np
 
 
-
-def get_series_key(model_name):
-    """Determine which series a model belongs to."""
-   
-    if model_name == 'LLMs (2023)':
-        return 'llms2023'
-    elif model_name == 'LLMs (2025)':
-        return 'llms2025'
-
-    mname = model_name.lower().split(' (')[0]
- 
-    
-    # Check explicit model lists
-    for key in ['nyt', 'human', 'llms']:
-        if mname in [m.lower() for m in series[key]["models"]]:
-            return key
-
-    # Check LLM year-based categories
-    if '(2023)' in model_name.lower():
-        return 'llm2023'
-    elif '(2025)' in model_name.lower():
-        return 'llm2025'
-   
-     
-    # Default to llm2025 for other LLMs
-    return 'llm2025'
-
-
-def is_human_model(model_name):
-    """Check if a model is a human dataset."""
-    mname = model_name.lower().split(' (')[0]
-    return mname in [m.lower() for m in all_human_models]
-
-
-def get_short_label_from_filepath(filepath):
-    """Extracts a pattern like '1K', '3K' etc., from a filename for a concise label."""
-    base_name = os.path.splitext(os.path.basename(filepath))[0]
-    match = re.search(r'(\d+[kK])', base_name)
-    if match:
-        return match.group(1).upper()
-    return base_name
-
-
-def get_year_from_filepath(filepath):
-    """
-    Extracts the year from a filename for a concise label.
-    This should be in the model name
-    """
-    if filepath.endswith('wsj.json'):
-        return "2023"
-    base_name = os.path.splitext(os.path.basename(filepath))[0]
-    match = re.search(r'(20\d\d)', base_name)
-    if match:
-        return match.group(1).upper()
-    return base_name
-
-def load_data_from_json(json_files, phenomena=['constr']):
-    """
-    Load and aggregate linguistic phenomenon data from multiple JSON files.
-    
-    This function processes JSON files containing linguistic analysis results for different
-    language models, combining data across files and organizing it by phenomenon type first,
-    then by model. It creates aggregated categories for all LLMs and year-specific LLM groups.
-    
-    Args:
-        json_files (list of str): Paths to JSON files to load. Each file should contain
-            data structured as: {phenomenon: {model: {type_name: count, ...}, ...}, ...}
-        phenomena (list of str, optional): List of phenomenon types to extract from the
-            JSON files. Defaults to ['constr'] (constructions).
-    
-    Returns:
-        tuple: A tuple containing:
-            - data (dict): Dictionary structured as {phenomenon: {model: [instances], ...}, ...}
-              where:
-                * First level keys are phenomenon names (e.g., 'constr', 'syntax')
-                * Second level keys include:
-                    - Individual model names in format "ModelName (year)"
-                    - 'LLMs': All non-human model instances combined
-                    - 'LLMs (2023)': All 2023 model instances combined
-                    - 'LLMs (2025)': All 2025 model instances combined
-                * Values are lists where each phenomenon type appears count times.
-            - model_to_file_map (dict): Dictionary mapping unique model names 
-              (format: "ModelName (year)") to their source JSON file paths.
-    
-    Example:
-        >>> files = ['results_2023.json', 'results_2025.json']
-        >>> data, file_map = load_data_from_json(files, phenomena=['constr', 'syntax'])
-        >>> print(data.keys())
-        dict_keys(['constr', 'syntax'])
-        >>> print(data['constr'].keys())
-        dict_keys(['GPT-4 (2023)', 'Claude (2025)', 'LLMs', 'LLMs (2023)', 'LLMs (2025)'])
-        >>> print(len(data['constr']['LLMs']))  # Total count for this phenomenon
-        1247
-    
-    Notes:
-        - Model names are made unique by appending the year from the filename in 
-          parentheses (extracted via get_year_from_filepath).
-        - Human models (identified via is_human_model) are excluded from the aggregate
-          'LLMs' categories.
-        - Count values in the source JSON are expanded into repeated instances in the
-          output lists (e.g., {"passive": 3} becomes ["passive", "passive", "passive"]).
-        - If a phenomenon doesn't exist in the source data, it's silently skipped.
-    """
-    data = {}
-    model_to_file_map = {}
-    combined_data = {}
-    
-    # Load and combine data from all JSON files
-    for json_file in json_files:
-        with open(json_file, 'r', encoding='utf-8') as f:
-            file_data = json.load(f)
-            for phenomenon in file_data:
-                if phenomenon not in combined_data:
-                    combined_data[phenomenon] = {}
-                for model in file_data[phenomenon]:
-                    if model in ignored_models:
-                        continue
-                    year = get_year_from_filepath(json_file)
-                    unique_model_name = f"{model} ({year})"
-                    if unique_model_name not in combined_data[phenomenon]:
-                        combined_data[phenomenon][unique_model_name] = {}
-                    combined_data[phenomenon][unique_model_name].update(
-                        file_data[phenomenon][model]
-                    )
-                    model_to_file_map[unique_model_name] = json_file
-    
-    # Extract and expand data for requested phenomena
-    for phenomenon in phenomena:
-        if phenomenon in combined_data:
-            # Initialize the phenomenon dict with aggregate categories
-            data[phenomenon] = {
-#                'LLMs': [],
-                'LLMs (2023)': [],
-                'LLMs (2025)': []
-            }
-            
-            for unique_model_name in combined_data[phenomenon]:
-                # Initialize model's data list
-                data[phenomenon][unique_model_name] = []
-                
-                # Expand counts into repeated instances
-                for type_name, count in combined_data[phenomenon][unique_model_name].items():
-                    names = [type_name] * count
-                    data[phenomenon][unique_model_name].extend(names)
-                    
-                    # Add to aggregate LLM categories (excluding human models)
-                    if not is_human_model(unique_model_name):
-                        #data[phenomenon]['LLMs'].extend(names)
-                        if '(2023)' in unique_model_name:
-                            data[phenomenon]['LLMs (2023)'].extend(names)
-                        elif '(2025)' in unique_model_name:
-                            data[phenomenon]['LLMs (2025)'].extend(names)
-                    
-    return data, model_to_file_map
-
-def split_punct(data):
-    """
-    For each phenomenon, add two new ones: one with punctuation types and one without.
-    
-    Creates new phenomenon categories by splitting each existing phenomenon into:
-    - phenomenon_punct: Contains only types identified as punctuation-related
-    - phenomenon_xpunct: Contains only types NOT identified as punctuation-related
-    
-    Args:
-        data (dict): Dictionary structured as {phenomenon: {model: [type_instances], ...}, ...}
-    
-    Returns:
-        dict: Original data augmented with _punct and _xpunct variants for each phenomenon.
-    
-    Example:
-        >>> data = {'constr': {'GPT-4 (2023)': ['pt_comma', 'passive', 'pct_period']}}
-        >>> result = split_punct(data)
-        >>> print(result.keys())
-        dict_keys(['constr', 'constr_punct', 'constr_xpunct'])
-        >>> print(result['constr_punct']['GPT-4 (2023)'])
-        ['pt_comma', 'pct_period']
-        >>> print(result['constr_xpunct']['GPT-4 (2023)'])
-        ['passive']
-    
-    Notes:
-        - Punctuation types are identified by: starting with 'pt', containing 'pct', 
-          or ending with 'plr'
-        - Original phenomenon data remains unchanged
-        - Uses defaultdict(list) for new phenomena to handle missing models gracefully
-    """
-    def is_punct(type_name):
-        if type_name.startswith('pt') or ('pct' in type_name) or type_name.endswith('plr'):
-            return True
-        else:
-            return False
-        
-    for phenomenon in list(data.keys()):  # Use list() to avoid modifying dict during iteration
-        data[f"{phenomenon}_punct"] = dd(list)
-        data[f"{phenomenon}_xpunct"] = dd(list)
-        for model in data[phenomenon]:
-            # Filter by is_punct
-            data[f"{phenomenon}_punct"][model] = [t for t in data[phenomenon][model] if is_punct(t)]
-            data[f"{phenomenon}_xpunct"][model] = [t for t in data[phenomenon][model] if not is_punct(t)]
-    
-    return data
-
-
+# --------------------------- Metrics ---------------------------
 
 def calculate_shannon_diversity(names):
-    """Calculate Shannon's diversity index for a given list of names."""
-    name_counts = dd(int)
-    for name in names:
-        name_counts[name] += 1
+    """Shannon diversity (natural log)."""
+    if not names:
+        return float('nan')
+    counts = Counter(names)
+    N = sum(counts.values())
+    if N == 0:
+        return float('nan')
+    H = 0.0
+    for c in counts.values():
+        p = c / N
+        if p > 0:
+            H -= p * math.log(p)
+    return H
 
-    total = len(names)
-    diversity = 0
-    for count in name_counts.values():
-        p = count / total
-        diversity -= p * math.log(p)
-    return diversity
 
-
-def simpson_diversity_index(observations):
-    """
-    Calculate Simpson's Diversity Index from a list of observed species.
-    """
-    counts = Counter(observations).values()
-    N = sum(counts)
-
+def simpson_diversity_index(names):
+    """Simpson diversity (1 - sum p_i^2)."""
+    if not names or len(names) <= 1:
+        return float('nan')
+    counts = Counter(names)
+    N = sum(counts.values())
     if N <= 1:
-        raise ValueError("Total number of observations must be greater than 1.")
-
-    numerator = sum(n * n for n in counts)
-    denominator = N * N
-
-    D = 1 - (numerator / denominator)
-    return D
+        return float('nan')
+    num = sum(c*c for c in counts.values())
+    return 1 - (num / (N*N))
 
 
-def learning_curve_analysis(thing, data, output_dir, n_bins=5):
+# --------------------------- Cohort styling ---------------------------
+
+COLOR_LLM_2023   = "#3A6DB4"  # cobalt blue
+COLOR_LLM_2025   = "#4AA6B4"  # teal-blue
+COLOR_HUMAN_NYT  = "#B44E3A"  # chestnut brown
+COLOR_HUMAN_OTH  = "#D17F4A"  # copper
+
+def model_year(model: str):
+    m = re.search(r"(20\d{2})", model)
+    return m.group(1) if m else None
+
+def is_human(model: str) -> bool:
+    return "-human" in model.lower()
+
+def human_subtype(model: str) -> str:
+    low = model.lower()
+    if "nyt" in low:
+        return "nyt"
+    return "other"
+
+def series_key(model: str) -> str:
+    """Return one of: 'llm2023', 'llm2025', 'human_nyt', 'human_other'."""
+    if is_human(model):
+        return "human_nyt" if human_subtype(model) == "nyt" else "human_other"
+    y = model_year(model) or ""
+    if "2023" in y:
+        return "llm2023"
+    if "2025" in y:
+        return "llm2025"
+    # default: treat as newer LLMs
+    return "llm2025"
+
+SERIES_STYLE = {
+    "llm2023":     dict(color=COLOR_LLM_2023, marker="o", size=38, label="LLMs (2023)"),
+    "llm2025":     dict(color=COLOR_LLM_2025, marker="o", size=38, label="LLMs (2025)"),
+    "human_nyt":   dict(color=COLOR_HUMAN_NYT, marker="*", size=60, label="Human (NYT)"),
+    "human_other": dict(color=COLOR_HUMAN_OTH, marker="+", size=52, label="Human (WSJ/Wiki)"),
+}
+
+
+# --------------------------- Load & Merge ---------------------------
+
+SUPPORTED_PHENOMENA = ["constr", "lexrule", "lextype", "lexentries"]
+
+def load_and_merge(files, phenomena):
     """
-    Analyze learning curves for diversity metrics.
-    
-    Args:
-        thing: Name of the phenomenon being analyzed
-        data: Dictionary of model data
-        output_dir: Directory for output files
-        n_bins: Number of bins to divide data into (default 5 for ~20% each)
+    Return: dict[phenomenon][model] -> Counter(type -> count)
+    Only keeps requested phenomena that exist in any file.
     """
-    print(f"\n=== Learning Curve Analysis for {thing} ===")
-    print(f"Using {n_bins} bins (~{100/n_bins:.0f}% each)")
-    
-    # Prepare data for learning curves
-    learning_data = {}
-    
-    for model in data:
-        if len(data[model]) > n_bins:  # Need enough data for bins
-            # Shuffle data to avoid ordering bias
-            shuffled = data[model].copy()
-            random.shuffle(shuffled)
-            learning_data[model] = shuffled
-    
-    if not learning_data:
-        print("Insufficient data for learning curve analysis")
-        return
-    
-    # Calculate diversity for each cumulative bin
-    results = {
-        'Shannon': {},
-        'Simpson': {}
-    }
-    
-    for model in learning_data:
-        print(f"  Processing {model} ({len(learning_data[model])} samples)...")
-        results['Shannon'][model] = []
-        results['Simpson'][model] = []
-        
-        total_samples = len(learning_data[model])
-        
-        # Incremental counting for efficiency
-        name_counts = dd(int)
-        
-        for i in range(1, n_bins + 1):
-            end_idx = int((i / n_bins) * total_samples)
-            start_idx = int(((i-1) / n_bins) * total_samples) if i > 1 else 0
-            
-            # Update counts incrementally
-            for name in learning_data[model][start_idx:end_idx]:
-                name_counts[name] += 1
-            
-            current_total = end_idx
-            
-            if current_total > 1:
-                # Shannon calculation
-                shannon_div = 0
-                for count in name_counts.values():
-                    p = count / current_total
-                    shannon_div -= p * math.log(p)
-                results['Shannon'][model].append(shannon_div)
-                
-                # Simpson calculation
-                numerator = sum(n * n for n in name_counts.values())
-                simpson_div = 1 - (numerator / (current_total * current_total))
-                results['Simpson'][model].append(simpson_div)
-    
-    # Creae learning curve plots with color scheme
-    for index_type in ['Shannon', 'Simpson']:
-        fig, ax = plt.subplots(figsize=(12, 5))
-        
-        # Calculate percentage labels for x-axis
-        x_values = [(i / n_bins) * 100 for i in range(1, n_bins + 1)]
-        
-        # Organize models by category for the legend
-        models_by_category = {}
-        for k in ['nyt', 'human', 'llm2023', 'llm2025']:
-            models_by_category[k] = []
-        
-        # Plot each model's learning curve
-        for model in results[index_type]:
-            if results[index_type][model]:
-                # Get style for this model
-                series_key = get_series_key(model)
-                if series_key.startswith('llms'):
-                    continue ## ignore aggregates
-                style = series[series_key]
-                models_by_category[series_key].append(model)
-                
-                if len(x_values) != len(results[index_type][model]):
-                    print (f"WARNING: x != y for model {model}")
+    data = {p: {} for p in SUPPORTED_PHENOMENA}
+    seen_any = False
+
+    for path in files:
+        with open(path, "r", encoding="utf-8") as f:
+            obj = json.load(f)
+        for p in phenomena:
+            if p not in obj or not isinstance(obj[p], dict):
+                continue
+            seen_any = True
+            for model, type_counts in obj[p].items():
+                if not isinstance(type_counts, dict):
                     continue
-                ax.plot(x_values, results[index_type][model], 
-                       marker=style["marker"], 
-                       linestyle=style["linestyle"], 
-                       linewidth=style["linewidth"], 
-                       markersize=style["markersize_line"],
-                       color=style["color"], 
-                       label=model, 
-                       alpha=0.8)
-        
-        ax.set_xlabel('Percentage of Data (%)', fontsize=11)
-        ax.set_ylabel(f'{index_type} Diversity Index', fontsize=11)
-        ax.set_title(f'Learning Curve: {thing} ({index_type} Index)', 
-                    fontsize=12, fontweight='bold')
-        
-        # Tufte style
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.grid(True, alpha=0.3, linestyle='--')
-        
-        # Create custom legend on the left showing models organized by category
-        legend_elements = []
-        legend_labels = []
-        
-        # Add header
-        legend_labels.append("Models (by initial value):")
-        legend_elements.append(plt.Line2D([0], [0], color='none'))
-        
-        # Sort models within each category by their initial value
-        for k in ['nyt', 'human', 'llm2023', 'llm2025']:
-            if models_by_category[k]:
-                # Sort by initial diversity value
-                sorted_models = sorted(models_by_category[k], 
-                                     key=lambda m: results[index_type][m][0] if results[index_type][m] else 0)
-                
-                # Add category header
-                legend_labels.append(f"\n{series[k]['label']}:")
-                legend_elements.append(plt.Line2D([0], [0], color='none'))
-                
-                # Add each model with its marker
-                for model in sorted_models:
-                    legend_elements.append(plt.Line2D([0], [0], 
-                                                     marker=series[k]['marker'],
-                                                     color=series[k]['color'],
-                                                     linestyle=series[k]['linestyle'],
-                                                     markersize=6,
-                                                     linewidth=1.5))
-                    legend_labels.append(f"  {model}")
-        
-        # Place legend on the left side
-        ax.legend(legend_elements, legend_labels, 
-                 loc='center left', bbox_to_anchor=(-0.35, 0.5),
-                 fontsize=8, frameon=True, framealpha=0.9)
-        
-        plt.tight_layout()
-        
-        # Save plot
-        filename = os.path.join(output_dir, 
-                               f"learning-curve-{thing.replace(' ', '-').lower()}-{index_type.lower()}.png")
-        plt.savefig(filename, dpi=150, bbox_inches='tight')
-        plt.close()
-        
-        print(f"Saved learning curve: {filename}")
-    
-    # Print summary statistics
-    print("\nLearning Curve Summary:")
-    for index_type in ['Shannon', 'Simpson']:
-        print(f"\n{index_type} Index:")
-        for model in results[index_type]:
-            if results[index_type][model]:
-                initial = results[index_type][model][0]
-                final = results[index_type][model][-1]
-                change = final - initial
-                pct_change = (change / initial) * 100 if initial > 0 else 0
-                print(f"  {model}: {initial:.3f} → {final:.3f} "
-                      f"(+{change:.3f}, {pct_change:+.1f}%)")
+                tgt = data[p].setdefault(model, Counter())
+                for tname, c in type_counts.items():
+                    try:
+                        c = int(c)
+                    except Exception:
+                        continue
+                    if c > 0:
+                        tgt[tname] += c
+
+    # drop empty phenomena
+    data = {p: md for p, md in data.items() if md}
+    return data, seen_any
 
 
-def analyze_diversity(thing, data, model_to_file_map, output_dir, json_files):
-    """Analyze diversity metrics for the given data."""
-    print(f"Analyzing diversity for: {thing}")
-    print(f"Available models: {list(data.keys())}")
-    if 'LLMs' in data:
-        print(f"LLMs sample (last 20): {data['LLMs'][-20:]}")
+# --------------------------- Plotting ---------------------------
 
-    diversity = dict()
-    diversity['Shannon'] = dict()
-    diversity['Simpson'] = dict()
+def plot_scatter_for_phenomenon(phenom, model_counters, outdir):
+    """
+    model_counters: dict[model] -> Counter(type -> count)
+    Writes: PNGs and MD tables for Shannon & Simpson.
+    """
+    # Expand to repeated list once per model
+    model_names_list = {}
+    for model, ctr in model_counters.items():
+        expanded = []
+        for t, c in ctr.items():
+            if c > 0:
+                expanded.extend([t]*c)
+        if expanded:
+            model_names_list[model] = expanded
 
-    for model in data:
-        if len(data[model]) > 1:
-            diversity['Shannon'][model] = calculate_shannon_diversity(data[model])
-            diversity['Simpson'][model] = simpson_diversity_index(data[model])
+    # Compute indices
+    sh_scores = []
+    si_scores = []
+    for model, names in model_names_list.items():
+        if len(names) <= 1:
+            continue
+        sh = calculate_shannon_diversity(names)
+        si = simpson_diversity_index(names)
+        sh_scores.append((model, sh))
+        si_scores.append((model, si))
 
-    for idx in ('Shannon', 'Simpson'):
-        models = list(diversity[idx].keys())
-        scores = list(diversity[idx].values())
+    # Sort by score for stable Y order
+    sh_scores.sort(key=lambda x: (x[1], x[0]))
+    si_scores.sort(key=lambda x: (x[1], x[0]))
 
-        sorted_indices = sorted(range(len(scores)), key=lambda k: scores[k])
-        models_sorted = [models[i] for i in sorted_indices]
-        scores_sorted = [scores[i] for i in sorted_indices]
+    # Emit tables
+    def save_md(scores, stem):
+        if not scores: return
+        p = os.path.join(outdir, f"{stem}.md")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("| Model | Diversity |\n| --- | --- |\n")
+            for m, v in scores:
+                f.write(f"| {m} | {v:.3f} |\n")
 
-        md_filename = os.path.join(output_dir, f"llm-erg-{thing.replace(' ', '-').lower()}-{idx.lower()}.md")
-        with open(md_filename, 'w') as out:
-            print("""| Model   | Diversity |
-| --- | --- |""", file=out)
-            for model, score in zip(models_sorted, scores_sorted):
-                print(f"| {model} | {score:.3f} |", file=out)
+    os.makedirs(outdir, exist_ok=True)
+    save_md(sh_scores, f"diversity-{phenom}-shannon")
+    save_md(si_scores, f"diversity-{phenom}-simpson")
 
-        fig, ax = plt.subplots(figsize=(6, 4))
+    # Common plotting helper
+    def scatter(scores, idx_label, fname):
+        if not scores: return
+        models = [m for m, _ in scores]
+        vals   = [v for _, v in scores]
+        fig, ax = plt.subplots(figsize=(8.2, 5.6))
+        y = np.arange(len(models))
 
-        for i, (score, model) in enumerate(zip(scores_sorted, models_sorted)):
-            series_key = get_series_key(model)
-            style = series[series_key]
-            
-            ax.scatter(score, i, 
-                      color=style["color"], 
-                      s=style["markersize_scatter"], 
-                      marker=style["marker"])
-                    
-        ax.set_yticks(range(len(models_sorted)))
-        ax.set_yticklabels(models_sorted, fontsize=10)
-        ax.tick_params(axis='x', labelsize=10)
-        ax.set_xlabel('Score', fontsize=10)
+        # draw points with cohort styling
+        present_series = set()
+        for i, (m, v) in enumerate(scores):
+            sk = series_key(m)
+            st = SERIES_STYLE[sk]
+            present_series.add(sk)
+            if st["marker"] == "+":
+                # plus is edge-only for readability over grid
+                ax.scatter(v, i, s=st["size"], marker=st["marker"], c=st["color"])
+            else:
+                ax.scatter(v, i, s=st["size"], marker=st["marker"], c=st["color"])
 
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['bottom'].set_visible(True)
-        ax.xaxis.set_ticks_position('bottom')
-        ax.yaxis.set_ticks_position('none')
-        ax.set_title(f"Diversity: {thing} ({idx} Index)", fontsize=12, fontweight='bold')
+        ax.set_yticks(y)
+        ax.set_yticklabels(models, fontsize=9)
+        ax.set_xlabel(idx_label, fontsize=10)
+        ax.set_title(f"Diversity — {phenom} ({idx_label})", fontsize=12)
+        ax.grid(True, linestyle="--", alpha=0.25)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
 
-        legend_patches = [mpatches.Patch(color=series[k]['color'],
-                                         label=series[k]['label']) 
-                         for k in ['nyt', 'human', 'llms2023', 'llms2025', 'llms']]
-        ax.legend(handles=legend_patches, loc='best', fontsize='small', title='Model Type')
+        # legend that matches plotted markers/colors; only present cohorts
+        handles = []
+        for sk in ["llm2023","llm2025","human_nyt","human_other"]:
+            if sk not in present_series:
+                continue
+            st = SERIES_STYLE[sk]
+            handles.append(Line2D([0],[0], marker=st["marker"], linestyle="None",
+                                  markerfacecolor=st["color"] if st["marker"] != "+" else "none",
+                                  markeredgecolor=st["color"], markeredgewidth=1.2,
+                                  color=st["color"], label=st["label"], markersize=8))
+        # Place outside right to avoid occluding points
+        if handles:
+            ax.legend(handles=handles, loc="center left", bbox_to_anchor=(1.02, 0.5),
+                      fontsize=8, title="Model Type", frameon=True)
 
         plt.tight_layout()
-        png_filename = os.path.join(output_dir, f"llm-erg-{thing.replace(' ', '-').lower()}-{idx.lower()}.png")
-        plt.savefig(png_filename, dpi=150, bbox_inches='tight')
+        outp = os.path.join(outdir, fname)
+        plt.savefig(outp, dpi=150, bbox_inches="tight")
         plt.close()
 
+    scatter(sh_scores, "Shannon Index", f"diversity-{phenom}-shannon.png")
+    scatter(si_scores, "Simpson Index", f"diversity-{phenom}-simpson.png")
 
-def permutation_test(sample1, sample2, index='shannon', reps=10000, rng=None):
-    """Perform permutation test to compare diversity between two samples."""
-    if rng is None:
-        rng = np.random.default_rng()
 
-    calc = simpson_diversity_index if index == 'simpson' else calculate_shannon_diversity
-    obs = abs(calc(sample1) - calc(sample2))
-
-    combined = np.concatenate([sample1, sample2])
-    n1 = len(sample1)
-
-    perm_diffs = []
-    for _ in range(reps):
-        perm = rng.permutation(combined)
-        d1, d2 = calc(perm[:n1]), calc(perm[n1:])
-        perm_diffs.append(abs(d1 - d2))
-
-    p_val = np.mean(np.array(perm_diffs) >= obs)
-    return obs, p_val, np.array(perm_diffs)
-
+# --------------------------- Main ---------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='Analyze linguistic diversity from JSON files')
-    parser.add_argument('json_files', nargs='+', help='JSON files containing linguistic data')
-    parser.add_argument('--phenomena', nargs='+',
-                        choices=['constr', 'lexrule', 'lextype'],
-                        default=['constr', 'lextype', 'lexrule'],
-                        help='Phenomena to analyze (default: constr, lextype, lexrule)')
-    parser.add_argument('--num-bootstrap', type=int, default=1,
-                        help='Number of bootstrap/permutation iterations (default: 1)')
-    parser.add_argument('--output-dir', type=str, default='out',
-                        help='Output directory for generated files (default: out)')
-    parser.add_argument('--learning', type=int, metavar='N',
-                        help='Generate learning curves with N bins (e.g., 5 for ~20%% each)')
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser(description="Diversity analysis for legacy-format JSON (with 'lexentries').")
+    ap.add_argument("json_files", nargs="+", help="Input JSON files in the OLD format.")
+    ap.add_argument("--output-dir", default="out", help="Directory to write outputs.")
+    ap.add_argument("--phenomena", nargs="+",
+                    choices=SUPPORTED_PHENOMENA,
+                    default=["constr", "lextype", "lexrule", "lexentries"],
+                    help="Which phenomena to analyze.")
+    args = ap.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
-    print(f"Output files will be saved to: {args.output_dir}")
 
-    def name_phenomenon(phenomenon):
-        phenomena_map = {
-            'constr': 'Constructions',
-            'lexrule': 'Lexical Rules',
-            'lextype': 'Lexical Types'
-        }
-        parts = phenomenon.split('_')
-        
-        name = phenomena_map[parts[0]]
-        if len(parts) > 1:
-            if parts[1] == 'punct':
-                name += ' (punctuation only)'
-            elif parts[1] == 'xpunct':
-                name += ' (no punctuation)'
-        return name
-            
+    data, seen_any = load_and_merge(args.json_files, args.phenomena)
+    if not seen_any:
+        print("No recognized phenomena found in the provided files.")
+        return
+    if not data:
+        print("No non-empty phenomena after merging (all were empty).")
+        return
 
-    all_data, model_to_file_map = load_data_from_json(args.json_files,
-                                                      args.phenomena)
-    all_data=split_punct(all_data)
-     
-    for phenomenon in all_data:
-        thing = name_phenomenon(phenomenon)
-        print(f"\n=== Analyzing {thing} ===")
-
-        data = all_data[phenomenon]
-
-        if not data or len(data) <= 1:
-            print(f"Insufficient data for {thing}. Skipping...")
+    for phenom, model_counters in data.items():
+        if not model_counters:
             continue
-            
-        # Run learning curve analysis if requested
-        if args.learning:
-            learning_curve_analysis(thing, data, args.output_dir, n_bins=args.learning)
-            
-        analyze_diversity(thing, data, model_to_file_map, args.output_dir, args.json_files)
-        
-        # Perform statistical tests if we have both LLMs and original data
-        if 'LLMs' in data and any(model in data for model in nyt_models):
-            reference_data = []
-            for model in nyt_models:
-                if model in data:
-                    reference_data.extend(data[model]) 
-            if reference_data and len(data['LLMs']) > 1 and len(reference_data) > 1:
-                observed_diff, p_value, diffs = permutation_test(
-                    data['LLMs'], reference_data, 'shannon', reps=args.num_bootstrap
-                )
-                print(
-                    f'Shannon {thing}; difference: {observed_diff:.4f}, p_value: {p_value:.4f} ({args.num_bootstrap} reps)')
-
-                observed_diff, p_value, diffs = permutation_test(
-                    data['LLMs'], reference_data, 'simpson', reps=args.num_bootstrap
-                )
-                print(
-                    f'Simpson {thing}; difference: {observed_diff:.4f}, p_value: {p_value:.4f} ({args.num_bootstrap} reps)')
+        plot_scatter_for_phenomenon(phenom, model_counters, args.output_dir)
 
 
 if __name__ == "__main__":
