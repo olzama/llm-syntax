@@ -20,6 +20,7 @@ Each file contains a nested dictionary with the structure:
   * `lexrule` — lexical rules (convert a word to a lexeme)
   * `lextype` — lexical types (fine-grained part of speech of a word)
   * `constr` — constructions (form–meaning pairings that combine one or more constituents)
+  * `lexentries` - lexical entries (similar to lemmas)
 
 * **model** — text source or model used:
 
@@ -58,6 +59,8 @@ python diversity.py [JSON_FILES...] [OPTIONS]
 - `--phenomena`: Phenomena to analyze (choices: `lexrule`, `lextype`, `constr`; default: all three)
 - `--num-bootstrap`: Number of permutation test iterations (default: 10000)
 - `--output-dir`: Directory for output files (default: `out`)
+- `--explain --coverage --max-top`: Calculate which types contribute the most to the difference in Jessen-Shannon Divergence and produce the butterfly plot for the max-top types.
+- `--explain-group "Model1,Model2..." "Model3,Model4..."`: Same as `--explain`, but for groups of models; treats all models equally regardless of the size of the corresponding dataset 
 
 #### Examples
 
