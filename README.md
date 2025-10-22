@@ -57,7 +57,7 @@ python diversity.py [JSON_FILES...] [OPTIONS]
 
 - `JSON_FILES`: One or more JSON files containing linguistic data in the expected format
 - `--phenomena`: Phenomena to analyze (choices: `lexrule`, `lextype`, `constr`; default: all three)
-- `--num-bootstrap`: Number of permutation test iterations (default: 10000)
+- `--num-bootstrap`: Number of permutation test iterations (default: 1)
 - `--output-dir`: Directory for output files (default: `out`)
 - `--explain --coverage --max-top`: Calculate which types contribute the most to the difference in Jessen-Shannon Divergence and produce the butterfly plot for the max-top types.
 - `--explain-group "Model1,Model2..." "Model3,Model4..."`: Same as `--explain`, but for groups of models; treats all models equally regardless of the size of the corresponding dataset
