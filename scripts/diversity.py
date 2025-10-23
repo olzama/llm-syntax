@@ -181,30 +181,86 @@ def plot_learning_curves(phenom: str, model_counters: Dict[str, Counter], outdir
 
 # --------------------------- Plotting: core explain visuals ---------------------------
 def butterfly_explain(keys, p, q, contribs, model_a, model_b, outpath, coverage=0.9, max_top=60):
+    """
+    Draw the butterfly plot AND emit a JSON file with the exact Top-K types used.
+    JSON path: <outpath without .png>-top-contributors.json
+    """
     coverage = normalize_coverage(coverage)
-    delta = p - q; total_jsd = contribs.sum()
+    delta = p - q
+    total_jsd = contribs.sum()
     order = np.argsort(contribs)[::-1]
-    K = coverage_top(contribs, coverage, max_top); top_idx = order[:K]
+    K = coverage_top(contribs, coverage, max_top)
+    top_idx = order[:K]
 
+    # Prepare left/right bars
     left = [(keys[i], contribs[i]) for i in top_idx if delta[i] > 0]
     right = [(keys[i], contribs[i]) for i in top_idx if delta[i] <= 0]
-    left.sort(key=lambda x: x[1]); right.sort(key=lambda x: x[1])
+    left.sort(key=lambda x: x[1])
+    right.sort(key=lambda x: x[1])
 
     labels = [k for k, _ in left] + [k for k, _ in right]
-    y_pos = np.arange(len(labels)); vals_left = [-v for _, v in left]; vals_right = [v for _, v in right]
+    y_pos = np.arange(len(labels))
+    vals_left = [-v for _, v in left]
+    vals_right = [v for _, v in right]
 
+    # ---- Plot ----
     fig, ax = plt.subplots(figsize=(10, max(4.0, 0.35 * len(labels) + 1.5)))
-    yl = np.arange(len(left)); yr = np.arange(len(left), len(labels))
-    if left:  ax.barh(yl, vals_left,  color="#3A6DB4", alpha=0.9, edgecolor='white', linewidth=0.5, label=model_a)
-    if right: ax.barh(yr, vals_right, color="#D17F4A", alpha=0.9, edgecolor='white', linewidth=0.5, label=model_b)
+    yl = np.arange(len(left))
+    yr = np.arange(len(left), len(labels))
+    if left:
+        ax.barh(yl, vals_left, color="#3A6DB4", alpha=0.9, edgecolor='white', linewidth=0.5, label=model_a)
+    if right:
+        ax.barh(yr, vals_right, color="#D17F4A", alpha=0.9, edgecolor='white', linewidth=0.5, label=model_b)
 
-    ax.set_yticks(y_pos); ax.set_yticklabels(labels, fontsize=9)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, fontsize=9)
     ax.set_xlabel("Per-type JSD contribution")
     cov = contribs[order[:K]].sum()/total_jsd if total_jsd > 0 else 0.0
-    ax.set_title(f"Top contributors by coverage — {model_a} vs {model_b}\nK={K} explain {cov:.1%} of JSD; tail={1-cov:.1%} across {len(contribs)-K} types")
-    ax.axvline(0, color='gray', linewidth=1.0); ax.grid(axis='x', linestyle='--', alpha=0.3)
+    ax.set_title(
+        f"Top contributors by coverage — {model_a} vs {model_b}\n"
+        f"K={K} explain {cov:.1%} of JSD; tail={1-cov:.1%} across {len(contribs)-K} types"
+    )
+    ax.axvline(0, color='gray', linewidth=1.0)
+    ax.grid(axis='x', linestyle='--', alpha=0.3)
     ax.legend(loc='best', fontsize=9, frameon=True)
-    plt.tight_layout(); plt.savefig(outpath, dpi=150, bbox_inches='tight'); plt.close()
+    plt.tight_layout()
+    plt.savefig(outpath, dpi=150, bbox_inches='tight')
+    plt.close()
+
+    # ---- JSON export (same Top-K as in the butterfly) ----
+    base_stem = os.path.splitext(outpath)[0]
+    json_path = base_stem + "-top-contributors.json"
+
+    # Build rows sorted by contribution desc over the selected Top-K
+    idx_sorted = top_idx[np.argsort(contribs[top_idx])[::-1]]
+    rows = []
+    for rank, i in enumerate(idx_sorted, start=1):
+        rows.append({
+            "type": keys[i],
+            "rank": rank,
+            "contribution": float(contribs[i]),
+            "p_A": float(p[i]),
+            "p_B": float(q[i]),
+            "delta": float(p[i] - q[i]),
+            "side": "A" if (p[i] - q[i]) > 0 else "B",
+            "models": {"A": model_a, "B": model_b}
+        })
+
+    payload = {
+        "meta": {
+            "coverage_target": float(coverage),
+            "coverage_achieved": float(contribs[top_idx].sum() / total_jsd) if total_jsd > 0 else 0.0,
+            "K": int(K),
+            "total_jsd": float(total_jsd)
+        },
+        "types": rows
+    }
+    try:
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        # Don’t fail the plot if writing the JSON has an issue
+        print(f"[butterfly_explain] Warning: failed to write JSON to {json_path}: {e}")
 
 def cumulative_curve(contribs, outpath, coverage=0.9, max_top=60):
     coverage = normalize_coverage(coverage)
