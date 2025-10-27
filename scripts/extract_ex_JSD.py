@@ -6,6 +6,12 @@ extract_examples_JSD.py
 Collect example sentences for JSD top-contributing lexical types, per model,
 from DELPH-IN itsdb profiles.
 
+Supports multi-chunk datasets (e.g., WSJ/Wikipedia) by treating a model's data
+directory as either:
+- a single TSDB profile (contains 'item' or 'relations'), or
+- a container of many TSDB profiles (any subdirs containing 'item'/'relations');
+  examples are accumulated across chunks until per-type caps are reached.
+
 Adds progress reporting:
 - Per-model start/heartbeat every N processed items (--progress-every)
 - Early-stop message when caps are reached
@@ -19,6 +25,8 @@ from collections import defaultdict as dd
 
 from delphin import itsdb, derivation
 from delphin.tokens import YYTokenLattice
+
+from erg import get_n_supertypes, populate_type_defs, read_lexicon
 
 
 def parse_group_models(jsd_payload):
@@ -46,8 +54,38 @@ def find_constituent(lattice, start, end, ex_text):
         return ""
 
 
-def collect_for_types_in_suite(suite_dir, types_of_interest, cap_per_type, progress_every=200, model_name=None, quiet=False):
+def is_tsdb_profile(dirpath: str) -> bool:
+    """Heuristic: a TSDB profile directory contains 'item' or 'relations' files."""
+    try:
+        entries = set(os.listdir(dirpath))
+    except Exception:
+        return False
+    return ('item' in entries) or ('relations' in entries)
+
+
+def list_tsdb_profiles(root: str):
+    """
+    Discover TSDB profiles under root.
+    - If root itself is a profile, return [root].
+    - Else, recursively walk and return all subdirs that are profiles.
+    """
+    if is_tsdb_profile(root):
+        return [root]
+    profiles = []
+    for cur, dirs, files in os.walk(root):
+        if is_tsdb_profile(cur):
+            profiles.append(cur)
+    profiles.sort()
+    return profiles
+
+
+def collect_for_types_in_suite(suite_dir, lex, types_of_interest, cap_per_type, progress_every=200, model_name=None, quiet=False):
+    """
+    Collect examples from a single TSDB profile directory.
+    Returns: dict type -> list[{"sentence":..., "constituent":...}, ...] (capped).
+    """
     ex_by_type = {t: [] for t in types_of_interest}
+
     def all_full():
         return all(len(v) >= cap_per_type for v in ex_by_type.values())
 
@@ -83,6 +121,10 @@ def collect_for_types_in_suite(suite_dir, types_of_interest, cap_per_type, progr
 
         for pt in deriv.preterminals():
             tname = getattr(pt, 'type', None)
+            if not tname:
+                supertypes = get_n_supertypes(lex, pt.entity, 1)
+                if supertypes:
+                    tname = list(supertypes[0])[0]
             if not tname or tname not in types_of_interest:
                 continue
             if len(ex_by_type[tname]) >= cap_per_type:
@@ -95,11 +137,52 @@ def collect_for_types_in_suite(suite_dir, types_of_interest, cap_per_type, progr
     return ex_by_type
 
 
+def collect_for_types_in_model(model_dir, lex, types_set, cap_per_type, progress_every=200, model_name=None, quiet=False):
+    """
+    Collect examples across one or many TSDB profiles under model_dir.
+    Accumulates examples per type across chunks until caps are reached.
+    """
+    profiles = list_tsdb_profiles(model_dir)
+    if not profiles:
+        if not quiet:
+            print(f"[scan] {model_name or model_dir}: no TSDB profiles found", flush=True)
+        return {t: [] for t in types_set}
+
+    if not quiet:
+        print(f"[scan] {model_name or model_dir}: {len(profiles)} profile(s) found", flush=True)
+
+    agg_by_type = {t: [] for t in types_set}
+
+    def all_full():
+        return all(len(v) >= cap_per_type for v in agg_by_type.values())
+
+    for prof in profiles:
+        if all_full():
+            if not quiet:
+                print(f"[scan] {model_name or model_dir}: caps reached across chunks; stopping.", flush=True)
+            break
+        chunk = collect_for_types_in_suite(
+            prof, lex, types_set, cap_per_type,
+            progress_every=progress_every, model_name=f"{model_name or model_dir}::{os.path.basename(prof)}",
+            quiet=quiet
+        )
+        for t, lst in chunk.items():
+            if not lst:
+                continue
+            need = max(0, cap_per_type - len(agg_by_type[t]))
+            if need <= 0:
+                continue
+            agg_by_type[t].extend(lst[:need])
+
+    return agg_by_type
+
+
 def main():
     ap = argparse.ArgumentParser(description="Collect examples for JSD top-contributing lexical types, per model.")
     ap.add_argument("jsd_files", nargs="+", help="Input JSD top-contributors JSON file(s).")
-    ap.add_argument("--data-dir", required=True, help="Directory with itsdb suites; one subdir per model.")
+    ap.add_argument("--data-dir", required=True, help="Directory with itsdb suites; one subdir per model (each may be a profile or a folder of profiles).")
     ap.add_argument("--output-dir", required=True, help="Where to write the enriched JSON(s).")
+    ap.add_argument("--erg-dir", required=True, help="Grammar directory.")
     ap.add_argument("--max-per-model", type=int, default=10, help="Max examples per type per model (default 10).")
     ap.add_argument("--progress-every", type=int, default=200, help="Heartbeat every N processed items (default 200).")
     ap.add_argument("--quiet", action="store_true", help="Suppress progress output.")
@@ -108,6 +191,9 @@ def main():
     args = ap.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
+
+    print("Reading in the ERG lexicon...")
+    lex,constrs = populate_type_defs(args.erg_dir)
 
     try:
         suites = [d for d in os.listdir(args.data_dir) if os.path.isdir(os.path.join(args.data_dir, d))]
@@ -142,10 +228,10 @@ def main():
         for model in suites:
             if model not in allow:
                 continue
+            model_dir = os.path.join(args.data_dir, model)
             print(f"[scan] Processing model: {model}", flush=True)
-            suite_dir = os.path.join(args.data_dir, model)
-            ex_by_type = collect_for_types_in_suite(
-                suite_dir, types_set, args.max_per_model,
+            ex_by_type = collect_for_types_in_model(
+                model_dir, lex, types_set, args.max_per_model,
                 progress_every=args.progress_every, model_name=model, quiet=args.quiet
             )
             if not args.quiet:
