@@ -62,8 +62,8 @@ def series_key(model: str) -> str:
 SERIES_STYLE = {
     "llm2023":     dict(color=COLOR_LLM_2023, marker="o", size=38,  label="LLMs (2023)"),
     "llm2025":     dict(color=COLOR_LLM_2025, marker="o", size=38,  label="LLMs (2025)"),
-    "llm2023_agg": dict(color=COLOR_LLM_2023, marker="D", size=100, label="LLMs (2023) combined"),
-    "llm2025_agg": dict(color=COLOR_LLM_2025, marker="D", size=100, label="LLMs (2025) combined"),
+    "llm2023_agg": dict(color=COLOR_LLM_2023, marker="o", size=150, label="LLMs (2023)"),
+    "llm2025_agg": dict(color=COLOR_LLM_2025, marker="o", size=150, label="LLMs (2025)"),
     "human_nyt":   dict(color=COLOR_HUMAN_NYT, marker="*", size=60,  label="Human (NYT)"),
     "human_other": dict(color=COLOR_HUMAN_OTH, marker="+", size=52,  label="Human (WSJ/Wiki)"),
 }
@@ -358,14 +358,15 @@ def plot_scatter_for_phenomenon(phenom: str, model_counters: Dict[str, Counter],
         suffix_label = {"_punct": " (punctuation only)", "_xpunct": " (excluding punctuation)", "": ""}.get(suffix, suffix)
         ax.set_title(f"Diversity: {phenom_label}{suffix_label} ({idx_label})", fontsize=11)
         ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
-        handles = []
-        for sk in ["llm2023","llm2023_agg","llm2025","llm2025_agg","human_nyt","human_other"]:
-            if sk not in present_series: continue
+        from matplotlib.patches import Patch
+        seen_labels = set(); handles = []
+        for sk in ["human_nyt","human_other","llm2023","llm2025"]:
+            base_present = sk in present_series or (sk + "_agg") in present_series
+            if not base_present: continue
             st = SERIES_STYLE[sk]
-            handles.append(Line2D([0],[0], marker=st["marker"], linestyle="None",
-                                  markerfacecolor=st["color"] if st["marker"] != "+" else "none",
-                                  markeredgecolor=st["color"], markeredgewidth=1.2,
-                                  color=st["color"], label=st["label"], markersize=8))
+            if st["label"] in seen_labels: continue
+            seen_labels.add(st["label"])
+            handles.append(Patch(facecolor=st["color"], label=st["label"]))
         if handles:
             ax.legend(handles=handles, loc="upper left", fontsize=8, title="Model Type", frameon=True)
         plt.tight_layout(); outp = os.path.join(outdir, fname); plt.savefig(outp, dpi=150, bbox_inches="tight"); plt.close()
