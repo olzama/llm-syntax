@@ -482,3 +482,22 @@ def test_collect_types_multidir_total_sentences():
     assert actual == 4, (
         f"Expected hd-pct_c count=4 across two directories, got: {actual}"
     )
+
+def test_collect_types_multidir_ignores_non_directory_entries():
+    """collect_types_multidir must skip non-directory entries (e.g. .DS_Store,
+    stray files) without crashing. The fixture contains .DS_Store and stray-file.txt
+    alongside wsj-a/ and wsj-b/."""
+    try:
+        sorted_types = collect_types_multidir(FIXTURE_MULTI_DIR, lex={}, depth=1)
+        raised = False
+    except Exception as e:
+        raised = True
+        error = e
+    print(f"\n  Input:    mini-multidir/ containing wsj-a/, wsj-b/, .DS_Store, stray-file.txt")
+    print(f"  Expected: no exception raised, counts unaffected by non-directory entries")
+    print(f"  Actual:   exception={'yes: ' + str(error) if raised else 'none'}")
+    print(f"  hdn_bnp_c count: {sorted_types['constr'].get('hdn_bnp_c') if not raised else 'n/a'}")
+    assert not raised, f"collect_types_multidir crashed on non-directory entry: {error}"
+    assert sorted_types['constr'].get('hdn_bnp_c') == 4, (
+        "Non-directory entries must not affect counts"
+    )
