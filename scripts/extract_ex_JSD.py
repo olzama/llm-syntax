@@ -53,6 +53,116 @@ def find_constituent(lattice, start, end, ex_text):
     except Exception:
         return ""
 
+def collect_for_constructions_in_suite(
+    suite_dir, types_of_interest, cap_per_type, *,
+    progress_every=200, model_name=None, quiet=False
+):
+    """
+    Collect examples for CONSTRUCTION types (internal non-preterminal, non-lexrule nodes)
+    from a single TSDB profile directory.
+
+    Returns:
+      dict: { constr_type: [ {"sentence": str, "constituent": str}, ... ] }  (each list capped)
+    """
+    ex_by_type = {t: [] for t in types_of_interest}
+
+    def all_full():
+        return all(len(v) >= cap_per_type for v in ex_by_type.values())
+
+    def _iter_udf_nodes(d):
+        if isinstance(d, derivation.UDFNode):
+            yield d
+            for ch in getattr(d, 'daughters', []) or []:
+                yield from _iter_udf_nodes(ch)
+
+    def _node_span(node):
+        # Prefer direct span if present
+        if hasattr(node, 'start') and hasattr(node, 'end'):
+            return node.start, node.end
+        # Otherwise, aggregate from descendants that have spans
+        starts, ends = [], []
+        for ch in _iter_udf_nodes(node):
+            if hasattr(ch, 'start') and hasattr(ch, 'end'):
+                starts.append(ch.start)
+                ends.append(ch.end)
+        if starts and ends:
+            return min(starts), max(ends)
+        return None, None
+
+    db = itsdb.TestSuite(suite_dir)
+    processed = 0
+    if not quiet:
+        print(f"[scan-constr] {model_name or suite_dir}: start", flush=True)
+
+    for response in db.processed_items():
+        processed += 1
+        if not quiet and processed % max(1, progress_every) == 0:
+            remaining = sum(max(0, cap_per_type - len(v)) for v in ex_by_type.values())
+            print(f"[scan-constr] {model_name or suite_dir}: {processed} items, remaining_slots={remaining}", flush=True)
+
+        if all_full():
+            if not quiet:
+                print(f"[scan-constr] {model_name or suite_dir}: done (early stop; caps reached)", flush=True)
+            break
+
+        results = response.get('results', [])
+        if not results:
+            continue
+
+        sent = response.get('i-input', '')
+        lat_str = response.get('p-input', '')
+
+        try:
+            lattice = YYTokenLattice.from_string(lat_str)
+        except Exception:
+            lattice = None
+
+        try:
+            d = derivation.from_string(results[0].get('derivation', ''))
+        except Exception:
+            continue
+
+        # Identify preterminals to exclude them from constructions
+        preterminals = {pt.entity for pt in d.preterminals()}
+
+        # Full traversal; keep only construction nodes
+        visited = set()
+        stack = [d]
+        while stack:
+            node = stack.pop()
+            if not isinstance(node, derivation.UDFNode):
+                continue
+            if id(node) in visited:
+                continue
+            visited.add(id(node))
+
+            tname = getattr(node, 'entity', None)
+            if tname:
+                # Exclude lexical rules and preterminals
+                if not tname.endswith('lr') and tname not in preterminals:
+                    if tname in types_of_interest and len(ex_by_type[tname]) < cap_per_type:
+                        start, end = _node_span(node)
+                        cons = ""
+                        if lattice is not None and start is not None and end is not None:
+                            try:
+                                cons = find_constituent(lattice, start, end, sent)
+                            except Exception:
+                                cons = ""
+                        ex_by_type[tname].append({"sentence": sent, "constituent": cons})
+
+                        if all_full():
+                            break
+
+            # Continue traversal
+            for ch in getattr(node, 'daughters', []) or []:
+                stack.append(ch)
+
+        if all_full():
+            if not quiet:
+                print(f"[scan-constr] {model_name or suite_dir}: done (early stop; caps reached)", flush=True)
+            break
+
+    return ex_by_type
 
 def is_tsdb_profile(dirpath: str) -> bool:
     """Heuristic: a TSDB profile directory contains 'item' or 'relations' files."""
@@ -161,8 +271,13 @@ def collect_for_types_in_model(model_dir, lex, types_set, cap_per_type, progress
             if not quiet:
                 print(f"[scan] {model_name or model_dir}: caps reached across chunks; stopping.", flush=True)
             break
-        chunk = collect_for_types_in_suite(
-            prof, lex, types_set, cap_per_type,
+        # chunk = collect_for_types_in_suite(
+        #     prof, lex, types_set, cap_per_type,
+        #     progress_every=progress_every, model_name=f"{model_name or model_dir}::{os.path.basename(prof)}",
+        #     quiet=quiet
+        # )
+        chunk = collect_for_constructions_in_suite(
+            prof, types_set, cap_per_type,
             progress_every=progress_every, model_name=f"{model_name or model_dir}::{os.path.basename(prof)}",
             quiet=quiet
         )
@@ -251,7 +366,8 @@ def main():
         enriched["types"] = enriched_types
 
         stem = os.path.splitext(os.path.basename(jsd_path))[0]
-        out_path = os.path.join(args.output_dir, f"{stem}-examples.json")
+        #out_path = os.path.join(args.output_dir, f"{stem}-examples.json")
+        out_path = os.path.join(args.output_dir, "constr-llm2025-vs-llm-2023.json")
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(enriched, f, ensure_ascii=False, indent=2)
         if not args.quiet:

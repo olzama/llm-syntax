@@ -97,7 +97,7 @@ if __name__ == '__main__':
             model_types = collect_types(dataset_path, lex, 1)
         for ctype in types:
             types[ctype][model] = model_types[ctype]
-    with open('./analysis/frequencies-json/frequencies-2025.json', 'w', encoding='utf8') as f:
+    with open('./analysis/frequencies-json/frequencies-debug.json', 'w', encoding='utf8') as f:
        json.dump(types, f, ensure_ascii=False, indent=2)
 
 
