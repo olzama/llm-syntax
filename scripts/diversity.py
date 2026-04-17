@@ -332,15 +332,17 @@ def plot_scatter_for_phenomenon(phenom: str, model_counters: Dict[str, Counter],
     def scatter(scores, idx_label, fname):
         if not scores: return
         models = [m for m, _ in scores]
-        fig, ax = plt.subplots(figsize=(5.5, 5.5)); y = np.arange(len(models))
+        fig, ax = plt.subplots(figsize=(7.5, 5.5)); y = np.arange(len(models))
         present_series = set()
         for i, (m, v) in enumerate(scores):
             sk = series_key(m); st = SERIES_STYLE[sk]; present_series.add(sk)
             ax.scatter(v, i, s=st["size"], marker=st["marker"], c=st["color"])
         ax.set_yticks(y); ax.set_yticklabels(models, fontsize=9)
         ax.set_xlabel(idx_label, fontsize=10)
+        phenom_label = {"constr": "Constructions", "lextype": "Lexical Types",
+                        "lexrule": "Lexical Rules", "lexentries": "Lexical Entries"}.get(phenom, phenom)
         suffix_label = {"_punct": " (punctuation only)", "_xpunct": " (excluding punctuation)", "": ""}.get(suffix, suffix)
-        ax.set_title(f"Lexical type diversity ({idx_label}){suffix_label}", fontsize=11)
+        ax.set_title(f"Diversity: {phenom_label}{suffix_label} ({idx_label})", fontsize=11)
         ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
         handles = []
         for sk in ["llm2023","llm2025","human_nyt","human_other"]:
