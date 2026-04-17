@@ -50,6 +50,8 @@ def human_subtype(model: str) -> str:
     return "nyt" if "nyt" in model.lower() else "other"
 
 def series_key(model: str) -> str:
+    if model == "LLMs (2023)": return "llm2023_agg"
+    if model == "LLMs (2025)": return "llm2025_agg"
     if is_human(model):
         return "human_nyt" if human_subtype(model) == "nyt" else "human_other"
     y = model_year(model) or ""
@@ -58,10 +60,12 @@ def series_key(model: str) -> str:
     return "llm2025"
 
 SERIES_STYLE = {
-    "llm2023":     dict(color=COLOR_LLM_2023, marker="o", size=38, label="LLMs (2023)"),
-    "llm2025":     dict(color=COLOR_LLM_2025, marker="o", size=38, label="LLMs (2025)"),
-    "human_nyt":   dict(color=COLOR_HUMAN_NYT, marker="*", size=60, label="Human (NYT)"),
-    "human_other": dict(color=COLOR_HUMAN_OTH, marker="+", size=52, label="Human (WSJ/Wiki)"),
+    "llm2023":     dict(color=COLOR_LLM_2023, marker="o", size=38,  label="LLMs (2023)"),
+    "llm2025":     dict(color=COLOR_LLM_2025, marker="o", size=38,  label="LLMs (2025)"),
+    "llm2023_agg": dict(color=COLOR_LLM_2023, marker="D", size=100, label="LLMs (2023) combined"),
+    "llm2025_agg": dict(color=COLOR_LLM_2025, marker="D", size=100, label="LLMs (2025) combined"),
+    "human_nyt":   dict(color=COLOR_HUMAN_NYT, marker="*", size=60,  label="Human (NYT)"),
+    "human_other": dict(color=COLOR_HUMAN_OTH, marker="+", size=52,  label="Human (WSJ/Wiki)"),
 }
 
 # --------------------------- Load & Merge ---------------------------
@@ -322,6 +326,16 @@ def plot_scatter_for_phenomenon(phenom: str, model_counters: Dict[str, Counter],
             if c > 0: expanded.extend([t]*c)
         if expanded: model_names_list[model] = expanded
 
+    # Add per-year LLM aggregates
+    agg_2023, agg_2025 = [], []
+    for model, names in model_names_list.items():
+        if not is_human(model):
+            y = model_year(model) or ""
+            if "2023" in y: agg_2023.extend(names)
+            elif "2025" in y: agg_2025.extend(names)
+    if agg_2023: model_names_list["LLMs (2023)"] = agg_2023
+    if agg_2025: model_names_list["LLMs (2025)"] = agg_2025
+
     sh_scores = []; si_scores = []
     for model, names in model_names_list.items():
         if len(names) <= 1: continue
@@ -345,7 +359,7 @@ def plot_scatter_for_phenomenon(phenom: str, model_counters: Dict[str, Counter],
         ax.set_title(f"Diversity: {phenom_label}{suffix_label} ({idx_label})", fontsize=11)
         ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
         handles = []
-        for sk in ["llm2023","llm2025","human_nyt","human_other"]:
+        for sk in ["llm2023","llm2023_agg","llm2025","llm2025_agg","human_nyt","human_other"]:
             if sk not in present_series: continue
             st = SERIES_STYLE[sk]
             handles.append(Line2D([0],[0], marker=st["marker"], linestyle="None",
