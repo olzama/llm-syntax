@@ -332,14 +332,14 @@ def plot_scatter_for_phenomenon(phenom: str, model_counters: Dict[str, Counter],
     def scatter(scores, idx_label, fname):
         if not scores: return
         models = [m for m, _ in scores]
-        fig, ax = plt.subplots(figsize=(8.2, 5.6)); y = np.arange(len(models))
+        fig, ax = plt.subplots(figsize=(8.2, 4.2)); y = np.arange(len(models))
         present_series = set()
         for i, (m, v) in enumerate(scores):
             sk = series_key(m); st = SERIES_STYLE[sk]; present_series.add(sk)
             ax.scatter(v, i, s=st["size"], marker=st["marker"], c=st["color"])
         ax.set_yticks(y); ax.set_yticklabels(models, fontsize=9)
-        ax.set_xlabel(idx_label, fontsize=10); ax.set_title(f"Diversity — {phenom}{suffix} ({idx_label})", fontsize=12)
-        ax.grid(True, linestyle="--", alpha=0.25); ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
+        ax.set_xlabel(idx_label, fontsize=10)
+        ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
         handles = []
         for sk in ["llm2023","llm2025","human_nyt","human_other"]:
             if sk not in present_series: continue
@@ -349,7 +349,7 @@ def plot_scatter_for_phenomenon(phenom: str, model_counters: Dict[str, Counter],
                                   markeredgecolor=st["color"], markeredgewidth=1.2,
                                   color=st["color"], label=st["label"], markersize=8))
         if handles:
-            ax.legend(handles=handles, loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=8, title="Model Type", frameon=True)
+            ax.legend(handles=handles, loc="upper left", fontsize=8, title="Model Type", frameon=True)
         plt.tight_layout(); outp = os.path.join(outdir, fname); plt.savefig(outp, dpi=150, bbox_inches="tight"); plt.close()
 
     os.makedirs(outdir, exist_ok=True)
