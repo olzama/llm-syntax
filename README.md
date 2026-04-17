@@ -24,16 +24,23 @@ Each file contains a nested dictionary with the structure:
 
 * **model** — text source or model used:
 
-  * `"new-original"` — NYT-2025
-  * `"original"` — Original NYT
-  * `"llama_07"` — LLaMA 7B
-  * `"llama_13"` — LLaMA 13B
-  * `"llama_30"` — LLaMA 30B
-  * `"llama_65"` — LLaMA 65B
-  * `"mistral_07"` — Mistral 7B
-  * `"falcon_07"` — Falcon 7B
-  * `"wsj"` — Wall Street Journal
-  * `"wikipedia"` — Wikipedia
+  * `"NYT-2023-human"` — NYT 2023 (human-authored)
+  * `"NYT-2025-human"` — NYT 2025 (human-authored)
+  * `"WSJ-1987-human"` — Wall Street Journal
+  * `"Wikipedia-2008-human"` — Wikipedia
+  * `"Llama7B-2023-llm"` — LLaMA 7B (2023)
+  * `"Llama13B-2023-llm"` — LLaMA 13B (2023)
+  * `"Llama30B-2023-llm"` — LLaMA 30B (2023)
+  * `"Llama65B-2023-llm"` — LLaMA 65B (2023)
+  * `"Mistral7B-2023-llm"` — Mistral 7B (2023)
+  * `"Falcon7B-2023-llm"` — Falcon 7B (2023)
+  * `"Llama70B-2025-llm"` — LLaMA 70B (2025)
+  * `"Mistral7B_i-2025-llm"` — Mistral 7B Instruct (2025)
+  * `"GPT4o-2025-llm"` — GPT-4o (2025)
+  * `"Qwen14B-2025-llm"` — Qwen 14B (2025)
+  * `"Qwen32B-2025-llm"` — Qwen 32B (2025)
+  * `"Qwen72B-2025-llm"` — Qwen 72B (2025)
+  * `"TinyLlama-2025-llm"` — TinyLlama (2025)
 
 * **type** — specific linguistic type (examples):
 
@@ -50,62 +57,69 @@ This script analyzes linguistic diversity in language model outputs using Shanno
 #### Usage
 
 ```bash
-python diversity.py [JSON_FILES...] [OPTIONS]
+python scripts/diversity.py [JSON_FILES...] [OPTIONS]
 ```
 
 #### Arguments
 
 - `JSON_FILES`: One or more JSON files containing linguistic data in the expected format
-- `--phenomena`: Phenomena to analyze (choices: `lexrule`, `lextype`, `constr`; default: all three)
-- `--num-bootstrap`: Number of permutation test iterations (default: 1)
+- `--phenomena`: Phenomena to analyze (choices: `lexrule`, `lextype`, `constr`, `lexentries`; default: all four)
 - `--output-dir`: Directory for output files (default: `out`)
-- `--explain --coverage --max-top`: Calculate which types contribute the most to the difference in Jessen-Shannon Divergence and produce the butterfly plot for the max-top types.
-- `--explain-group "Model1,Model2..." "Model3,Model4..."`: Same as `--explain`, but for groups of models; treats all models equally regardless of the size of the corresponding dataset
-- `--split-punct`: Produce separate analyses with and without types related directly to punctuation
+- `--split-punct`: Also produce separate analyses with and without punctuation-related types
+- `--explain MODEL_A MODEL_B`: Pairwise JSD explain butterfly plot for two models
+- `--group-explain "Model1,Model2,..." "Model3,Model4,..."`: Same as `--explain` but for groups of models
+- `--coverage`: Coverage target for Top-K type selection (default: 0.9)
+- `--max-top`: Upper cap on number of types shown in explain plots (default: 60)
+- `--learning N`: Produce learning curves with N bins per phenomenon
 
 #### Examples
 
-Current advised settings:
-```
-uv run scripts/diversity.py --num-bootstrap 1 analysis/frequencies-json/frequencies-2025.json analysis/frequencies-json/frequencies-2023-repro.json 
+Generate diversity plots for constructions and lexical types (recommended):
+```bash
+python scripts/diversity.py \
+  analysis/frequencies-json/frequencies-2023.json \
+  analysis/frequencies-json/frequencies-2025.json \
+  --output-dir analysis/plots/plots-diversity \
+  --phenomena constr lextype \
+  --split-punct
 ```
 
-Basic usage with default settings (using uv for dependencies):
+> **Note:** On headless machines (no display), prefix with `MPLBACKEND=Agg` to avoid a segfault:
+> ```bash
+> MPLBACKEND=Agg python scripts/diversity.py ...
+> ```
+
+All phenomena, custom output directory:
 ```bash
-uv run scripts/diversity.py analysis/frequencies-json/*.json 
-OR
-python scripts/diversity.py analysis/frequencies-json/*.json 
+python scripts/diversity.py analysis/frequencies-json/*.json --output-dir results
 ```
 
-Analyze only constructions and lexical rules, save to custom directory:
+Pairwise JSD explain plot for two models:
 ```bash
-python diversity.py data1.json --phenomena constr lexrule --output-dir results
-```
-
-Run with fewer bootstrap iterations for faster execution:
-```bash
-python diversity.py data1.json --num-bootstrap 1000
+python scripts/diversity.py analysis/frequencies-json/*.json \
+  --explain NYT-2023-human Llama7B-2023-llm \
+  --coverage 0.9 --max-top 40
 ```
 
 #### Output Files
 
-The script generates the following files in the output directory:
+Outputs are written to two subdirectories of `--output-dir`:
 
-- `erg-llm-{phenomenon}-{index}.md`: Markdown tables with diversity scores
-- `llm-erg-{phenomenon}-{index}.png`: Tufte-style plots showing diversity comparisons
+- `png/diversity-{phenom}{suffix}-{index}.png` — scatter plots of diversity scores
+- `md/diversity-{phenom}{suffix}-{index}.md` — markdown tables with per-model diversity scores
 
-Where `{phenomenon}` is one of `constructions`, `lexical-rules`, or `lexical-types`, and `{index}` is either `shannon` or `simpson`.
+Where `{phenom}` is one of `constr`, `lextype`, `lexrule`, `lexentries`; `{suffix}` is empty, `_punct`, or `_xpunct` (when using `--split-punct`); and `{index}` is `shannon` or `simpson`.
 
 #### Dependencies
 
 - numpy
 - matplotlib
-- json (built-in)
-- collections (built-in)
 
-## Publication
+## Publications
 
 * Olga Zamaraeva, Dan Flickinger, Francis Bond, and Carlos Gómez-Rodríguez. 2025. *[Comparing LLM-generated and human-authored news text using formal syntactic theory](https://aclanthology.org/2025.acl-long.443/)*. In *Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)*, pages 9041–9060, Vienna, Austria. Association for Computational Linguistics.
+
+* Adrián Gude, Roi Santos-Rios, Francis Bond, Dan Flickinger, Carlos Gómez-Rodríguez, and Olga Zamaraeva. To appear. *More aligned, less diverse? Comparing the grammar and lexicon of two generations of LLMs*. In *Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics*, San Diego, CA, USA. Association for Computational Linguistics.
 
 Reusing data from:
 
