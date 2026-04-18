@@ -8,7 +8,7 @@ A lightweight text generation project using configurable YAML settings, Hugging 
 
 - **Python** 3.10+
 - **Poetry** (dependency and virtual environment manager)
-  - Install via `pipx install poetry` *(recommended if running on Mortimer)*
+  - Install via `pipx install poetry`
   - Or: `pip install --user poetry`
 - **pre-commit** (Git hooks, installed inside the project)
 
@@ -203,23 +203,3 @@ git push -u origin main
 ```
 
 ---
-
-## 📖 About the Tools
-
-### Poetry
-- Creates per-project virtual environments
-- Manages dependencies & versions via `pyproject.toml` + `poetry.lock`
-- Reproducible installs across environments
-
-Compared to `pip` + `virtualenv`:
-- No manual `requirements.txt` syncing
-- Integrated package metadata
-
-### PDM (Python Dependency Manager)
-- Alternative to Poetry
-- Uses standards (`pyproject.toml`, PEP 582/621)
-- Can work without virtualenv (via `__pypackages__/`)
-- Pros: faster startup, strong standards compliance
-- Cons: smaller ecosystem, different workflow
-
-In this project: **created with PDM, dependencies managed with Poetry**.
