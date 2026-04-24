@@ -1,0 +1,50 @@
+;;; -*- Mode: TDL; Coding: utf-8 -*-
+;;; Nouns
+
+cat := common-noun-lex &
+  [ STEM < "cat" >,
+    SYNSEM.LKEYS.KEYREL.PRED "_cat_n_rel" ].
+
+dog := common-noun-lex &
+  [ STEM < "dog" >,
+    SYNSEM.LKEYS.KEYREL.PRED "_dog_n_rel" ].
+
+I := 1sg-pronoun-noun-lex &
+  [ STEM < "I" >,
+    SYNSEM.LKEYS.KEYREL.PRED "_pronoun_n_rel" ].
+
+;;; Adjectives
+
+big := regular-adj-lex &
+  [ STEM < "big" >,
+    SYNSEM.LKEYS.KEYREL.PRED "_big_a_rel" ].
+
+small := regular-adj-lex &
+  [ STEM < "small" >,
+    SYNSEM.LKEYS.KEYREL.PRED "_small_a_rel" ].
+
+;;; Verbs
+
+sleep := itr-verb-lex &
+  [ STEM < "sleep" >,
+    SYNSEM.LKEYS.KEYREL.PRED "_sleep_v_rel" ].
+
+chase := tr-verb-lex &
+  [ STEM < "chase" >,
+    SYNSEM.LKEYS.KEYREL.PRED "_chase_v_rel" ].
+
+;;; Copulas
+
+is := 3rd-sg-cop-lex &
+  [ STEM < "is" > ].
+
+are := pl-cop-lex &
+  [ STEM < "are" > ].
+
+;;; Determiners
+
+the := det1-determiner-lex &
+  [ STEM < "the" >,
+    SYNSEM.LKEYS.KEYREL.PRED "_def_q_rel" ].
+
+;;; Adverbs

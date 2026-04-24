@@ -16,6 +16,11 @@ from construction_frequencies import (
     compare_human_vs_machine,
     find_absolute_diffs_lextype,
     compare_lexentries,
+    normalize_by_num_sen,
+    build_llm_vs_human,
+    dataset_sizes,
+    LLM_GENERATED,
+    ALL_HUMAN_AUTHORED,
 )
 
 
@@ -576,3 +581,133 @@ def test_compare_lexentries_shared_entry_absent_from_exclusive():
     assert 'apple' not in only_in_human.get('not in any llm', {}), (
         f"Shared entry 'apple' must not appear in only_in_human"
     )
+
+
+# ---------------------------------------------------------------------------
+# normalize_by_num_sen
+#
+# Uses 'original' (26102 sentences) and 'falcon_07' (27769 sentences) from
+# dataset_sizes so the function can look up the denominator.
+# ---------------------------------------------------------------------------
+
+def _make_freq_for_norm():
+    return {
+        'constr':  {'original': {'sb-hd_mc_c': 26102, 'hd-pct_c': 13051},
+                    'falcon_07': {'sb-hd_mc_c': 27769, 'hd-pct_c': 0}},
+        'lexrule': {'original': {'n_sg_ilr': 2610},
+                    'falcon_07': {'n_sg_ilr': 5554}},
+        'lextype': {'original': {'n_-_c_le': 26102},
+                    'falcon_07': {'n_-_c_le': 27769}},
+    }
+
+
+def test_normalize_by_num_sen_does_not_mutate_input():
+    """normalize_by_num_sen must not modify the input dict."""
+    freq = _make_freq_for_norm()
+    original_count = freq['constr']['original']['sb-hd_mc_c']
+    normalize_by_num_sen(freq)
+    assert freq['constr']['original']['sb-hd_mc_c'] == original_count, (
+        "Input freq_by_model was mutated"
+    )
+
+
+def test_normalize_by_num_sen_returns_two_dicts():
+    """normalize_by_num_sen returns a (normalized, reverse) tuple."""
+    result = normalize_by_num_sen(_make_freq_for_norm())
+    assert isinstance(result, tuple) and len(result) == 2
+
+
+def test_normalize_by_num_sen_divides_by_dataset_size():
+    """Each count is divided by the model's entry in dataset_sizes."""
+    normalized, _ = normalize_by_num_sen(_make_freq_for_norm())
+    expected = 26102 / dataset_sizes['original']
+    actual = normalized['constr']['original']['sb-hd_mc_c']
+    print(f"\n  Input:    sb-hd_mc_c=26102 for 'original' ({dataset_sizes['original']} sentences)")
+    print(f"  Expected: {expected:.6f}")
+    print(f"  Actual:   {actual:.6f}")
+    assert abs(actual - expected) < 1e-9
+
+
+def test_normalize_by_num_sen_normalized_sorted_descending():
+    """The normalized dict is sorted in descending order of frequency."""
+    normalized, _ = normalize_by_num_sen(_make_freq_for_norm())
+    values = list(normalized['constr']['original'].values())
+    assert values == sorted(values, reverse=True), (
+        f"Normalized counts not sorted descending: {values}"
+    )
+
+
+def test_normalize_by_num_sen_reverse_sorted_ascending():
+    """The reverse dict is sorted in ascending order of frequency."""
+    _, reverse = normalize_by_num_sen(_make_freq_for_norm())
+    values = list(reverse['constr']['original'].values())
+    assert values == sorted(values), (
+        f"Reverse counts not sorted ascending: {values}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# build_llm_vs_human
+#
+# Uses actual LLM_GENERATED and ALL_HUMAN_AUTHORED constants so the function
+# can find the right keys.
+# ---------------------------------------------------------------------------
+
+def _make_freq_for_combined():
+    """Minimal frequencies dict with two LLMs and two human models."""
+    llm1, llm2 = LLM_GENERATED[0], LLM_GENERATED[1]
+    human = ALL_HUMAN_AUTHORED[0]
+    return {
+        'constr':  {llm1:  {'sb-hd_mc_c': 10, 'hd-pct_c': 5},
+                    llm2:  {'sb-hd_mc_c':  8, 'hd-pct_c': 2},
+                    human: {'sb-hd_mc_c': 20, 'hd-pct_c': 9}},
+        'lexrule': {llm1:  {'n_sg_ilr': 4},
+                    llm2:  {'n_sg_ilr': 3},
+                    human: {'n_sg_ilr': 7}},
+        'lextype': {llm1:  {'n_-_c_le': 6},
+                    llm2:  {'n_-_c_le': 5},
+                    human: {'n_-_c_le': 11}},
+    }
+
+
+def test_build_llm_vs_human_contains_llm_key():
+    """Result has an 'llm' key in each rule type."""
+    result = build_llm_vs_human(_make_freq_for_combined())
+    for rt in result:
+        assert 'llm' in result[rt], f"'llm' key missing from rule type '{rt}'"
+
+
+def test_build_llm_vs_human_sums_llm_counts():
+    """Counts for the 'llm' entry are the sum across all LLM_GENERATED models."""
+    freq = _make_freq_for_combined()
+    result = build_llm_vs_human(freq)
+    llm1, llm2 = LLM_GENERATED[0], LLM_GENERATED[1]
+    expected = freq['constr'][llm1]['sb-hd_mc_c'] + freq['constr'][llm2]['sb-hd_mc_c']
+    actual = result['constr']['llm']['sb-hd_mc_c']
+    print(f"\n  Input:    {llm1}=10, {llm2}=8")
+    print(f"  Expected: llm['sb-hd_mc_c'] = {expected}")
+    print(f"  Actual:   {actual}")
+    assert actual == expected
+
+
+def test_build_llm_vs_human_contains_human_models():
+    """Human baseline models are preserved in the result."""
+    result = build_llm_vs_human(_make_freq_for_combined())
+    human = ALL_HUMAN_AUTHORED[0]
+    assert human in result['constr'], f"Human model '{human}' missing from result"
+
+
+def test_build_llm_vs_human_excludes_individual_llms():
+    """Individual LLM model keys are not present — only the aggregate 'llm'."""
+    result = build_llm_vs_human(_make_freq_for_combined())
+    for llm in LLM_GENERATED:
+        assert llm not in result['constr'], f"Individual LLM '{llm}' should not appear in result"
+
+
+def test_build_llm_vs_human_does_not_mutate_input():
+    """Input frequencies dict is not modified."""
+    freq = _make_freq_for_combined()
+    llm1 = LLM_GENERATED[0]
+    original_count = freq['constr'][llm1]['sb-hd_mc_c']
+    build_llm_vs_human(freq)
+    assert freq['constr'][llm1]['sb-hd_mc_c'] == original_count, "Input was mutated"

@@ -1,0 +1,10 @@
+;;; -*- Mode: TDL; Coding: utf-8 -*-
+;;; Inflecting Lexical Rule Instances
+
+plural-suffix :=
+%suffix (* s)
+plural-lex-rule.
+
+3sg-suffix :=
+%suffix (* s)
+3sg-lex-rule.

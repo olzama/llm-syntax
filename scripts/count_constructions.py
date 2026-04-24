@@ -49,10 +49,23 @@ def _sort_types(types):
 
 
 def _empty_types():
+    """Return an empty types dict with all four category keys."""
     return {'constr': {}, 'lexrule': {}, 'lextype': {}, 'lexentries': {}}
 
 
+def _print_type_stats(sorted_types):
+    """Print a one-line count of distinct types found in each category."""
+    print("Total syntactic types found:", len(sorted_types['constr']))
+    print("Total lexical rule types found:", len(sorted_types['lexrule']))
+    print("Total lexical types found:", len(sorted_types['lextype']))
+    print("Total lemmas found:", len(sorted_types['lexentries']))
+
+
 def collect_types_multidir(data_dir, lex, depth, sample_size=None):
+    """Count construction types across all dataset subdirectories under data_dir.
+
+    Returns a sorted types dict aggregated over all subdirectories.
+    """
     types = _empty_types()
     total_sen = 0
     for dataset in os.listdir(data_dir):
@@ -63,26 +76,28 @@ def collect_types_multidir(data_dir, lex, depth, sample_size=None):
         total_sen += collect_types_core(dataset_dir, depth, lex, sample_size, types)
     print("Total sentences processed:", total_sen)
     sorted_types = _sort_types(types)
-    print("Total syntactic types found:", len(sorted_types['constr']))
-    print("Total lexical rule types found:", len(sorted_types['lexrule']))
-    print("Total lexical types found:", len(sorted_types['lextype']))
-    print("Total lemmas found:", len(sorted_types['lexentries']))
+    _print_type_stats(sorted_types)
     return sorted_types
 
 
 def collect_types(data_dir, lex, depth, sample_size=None):
+    """Count construction types in a single dataset directory.
+
+    Returns a sorted types dict (see _sort_types).
+    """
     types = _empty_types()
     total_sen = collect_types_core(data_dir, depth, lex, sample_size, types)
     print("Total sentences processed:", total_sen)
     sorted_types = _sort_types(types)
-    print("Total syntactic types found:", len(sorted_types['constr']))
-    print("Total lexical rule types found:", len(sorted_types['lexrule']))
-    print("Total lexical types found:", len(sorted_types['lextype']))
-    print("Total lemmas found:", len(sorted_types['lexentries']))
+    _print_type_stats(sorted_types)
     return sorted_types
 
 
 def collect_types_core(data_dir, depth, lex, sample_size, types):
+    """Parse derivations from the ITSDB test suite at data_dir and accumulate counts into types.
+
+    Returns the number of items processed (after optional sampling).
+    """
     db = itsdb.TestSuite(data_dir)
     items = list(db.processed_items())
     if sample_size:
@@ -104,7 +119,7 @@ if __name__ == '__main__':
     erg_dir = sys.argv[1]
     print("Reading in the ERG lexicon...")
     lex, constrs = populate_type_defs(erg_dir)
-    types = {'constr': {}, 'lexrule': {}, 'lextype': {}, 'lexentries': {}}
+    types = _empty_types()
     for model in os.listdir(data_dir):
         print("Counting constructions in {}...".format(model))
         dataset_path = os.path.join(data_dir, model)

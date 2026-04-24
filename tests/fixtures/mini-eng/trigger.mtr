@@ -1,0 +1,10 @@
+;;; -*- Mode: TDL; Coding: utf-8 -*-
+;;; Semantically Empty Lexical Entries
+
+is_gr := arg0e_gtr &
+  [ CONTEXT.RELS.LIST < [ PRED "~._a_" ] >,
+    FLAGS.TRIGGER "is" ].
+
+are_gr := arg0e_gtr &
+  [ CONTEXT.RELS.LIST < [ PRED "~._a_" ] >,
+    FLAGS.TRIGGER "are" ].

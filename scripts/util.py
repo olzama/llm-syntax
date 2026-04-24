@@ -1,3 +1,4 @@
+import os
 from scipy import stats
 import numpy as np
 from collections import defaultdict
@@ -8,7 +9,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from delphin import itsdb, commands
 
-def freq_counts_by_model(freq_by_model, model1, model2, model3, model4, start, end, title, reverse):
+def freq_counts_by_model(freq_by_model, model1, model2, model3, model4, start, end, title, reverse,
+                         output_dir='analysis/plots/frequencies'):
     n_constructions = {}
     for rule_type in freq_by_model:
         frequencies1 = freq_by_model[rule_type][model1]
@@ -53,17 +55,18 @@ def freq_counts_by_model(freq_by_model, model1, model2, model3, model4, start, e
         df = df.fillna(0)  # Handle missing values
         ax = df.plot(kind='bar', x=rule_type, y=model1, figsize=(14, 8), width=0.8, color='blue', label=model1,
                      alpha=0.5, zorder=2)
-        # Plotting other models with patterned or outlined bars
-        df.plot(kind='scatter', x=rule_type, y=model2, ax=ax, label=model2, zorder=1, color='red', s=20)
-        df.plot(kind='scatter', x=rule_type, y=model3, ax=ax, label=model3, zorder=1, color='green', s=20)
-        df.plot(kind='scatter', x=rule_type, y=model4, ax=ax, label=model4, zorder=1, color='yellow', s=20)
+        x_pos = range(len(df))
+        ax.scatter(x_pos, df[model2], label=model2, zorder=3, color='red', s=20)
+        ax.scatter(x_pos, df[model3], label=model3, zorder=3, color='green', s=20)
+        ax.scatter(x_pos, df[model4], label=model4, zorder=3, color='yellow', s=20)
         plt.title("Comparison of {} Frequencies".format(rule_type))
         plt.xlabel(rule_type)
         plt.ylabel("Frequency (Normalized)")
         plt.xticks(rotation=90)
         plt.legend(title="{} vs. {}, {}, and {}".format(model1, model2, model3, model4))
         plt.tight_layout()
-        plt.savefig('analysis/plots/frequencies/{}-{}/{}-{}-{}-{}-{}-{}.png'.format(start, end, title, model1, model2, model3, model4, rule_type))
+        plt.savefig(os.path.join(output_dir, '{}-{}'.format(start, end),
+                                '{}-{}-{}-{}-{}-{}.png'.format(title, model1, model2, model3, model4, rule_type)))
         plt.close()
 
 def normalize_by_constr_count(data):

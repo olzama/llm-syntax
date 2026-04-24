@@ -115,6 +115,54 @@ Where `{phenom}` is one of `constr`, `lextype`, `lexrule`, `lexentries`; `{suffi
 - numpy
 - matplotlib
 
+### Frequency Comparison Plots
+
+`visualize_frequencies.py` generates bar+scatter plots comparing each LLM model's
+top-N construction, lexrule, and lextype frequencies against the three human baselines
+(NYT, Wikipedia, WSJ), normalized by sentence count.
+
+#### Usage
+
+```bash
+python scripts/visualize_frequencies.py <frequencies_json>
+```
+
+Run from the repo root. Model names in the JSON must match those defined in `dataset_sizes`
+in `scripts/construction_frequencies.py`.
+
+#### Example
+
+```bash
+python scripts/visualize_frequencies.py analysis/frequencies-json/frequencies-models-wiki-wsj.json
+```
+
+> **Note:** On headless machines (no display), prefix with `MPLBACKEND=Agg`:
+> ```bash
+> MPLBACKEND=Agg python scripts/visualize_frequencies.py analysis/frequencies-json/frequencies-models-wiki-wsj.json
+> ```
+
+#### Output Files
+
+PNG files written to `analysis/plots/frequencies/0-50/`. Two sets are produced:
+
+**Per-model** (one bar per LLM, normalized by sentence count):
+```
+Top frequencies-llama_30-original-wikipedia-wsj-constr.png
+Bottom frequencies-llama_30-original-wikipedia-wsj-constr.png
+...
+```
+
+**Combined** (all LLMs aggregated as `llm`, normalized by construction count):
+```
+Top frequencies-llm-original-wikipedia-wsj-constr.png
+Bottom frequencies-llm-original-wikipedia-wsj-constr.png
+...
+```
+
+#### Dependencies
+
+- numpy, pandas, matplotlib
+
 ## Publications
 
 * Olga Zamaraeva, Dan Flickinger, Francis Bond, and Carlos Gómez-Rodríguez. 2025. *[Comparing LLM-generated and human-authored news text using formal syntactic theory](https://aclanthology.org/2025.acl-long.443/)*. In *Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)*, pages 9041–9060, Vienna, Austria. Association for Computational Linguistics.
