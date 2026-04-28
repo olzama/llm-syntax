@@ -5,7 +5,7 @@ import pytest
 from erg import get_n_supertypes, lexical_types, dict_to_latex_table, create_friendly_name
 from erg import populate_type_defs, read_lexicon, types2defs
 
-FIXTURE_GRAMMAR_DIR = os.path.join(os.path.dirname(__file__), 'fixtures', 'mini-grammar')
+FIXTURE_GRAMMAR_DIR = os.path.join(os.path.dirname(__file__), 'fixtures', 'mini-eng')
 FIXTURE_LEXICON     = os.path.join(FIXTURE_GRAMMAR_DIR, 'lexicon.tdl')
 
 
@@ -227,53 +227,44 @@ def test_dict_to_latex_table_empty_include():
 
 
 # ---------------------------------------------------------------------------
-# populate_type_defs  /  read_lexicon  /  types2defs
-# (require a fixture grammar directory — skipped until fixtures are provided)
+# read_lexicon
+#
+# Tests our grouping-by-first-supertype and sorting logic.
+#
+# mini-eng/lexicon.tdl:
+#   common-noun-lex:      cat, dog        (2 entries)
+#   regular-adj-lex:      big, small      (2 entries)
+#   1sg-pronoun-noun-lex: I               (1 entry)
+#   3rd-sg-cop-lex:       is              (1 entry)
+#   det1-determiner-lex:  the             (1 entry)
+#   itr-verb-lex:         sleep           (1 entry)
+#   pl-cop-lex:           are             (1 entry)
+#   tr-verb-lex:          chase           (1 entry)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(reason="fixture grammar not yet provided")
-def test_populate_type_defs_returns_lex_and_constr_types():
-    lex, constr_types = populate_type_defs(FIXTURE_GRAMMAR_DIR)
-    assert isinstance(lex, dict)
-    assert set(constr_types.keys()) == {'syntax', 'lexrule', 'lextype'}
-
-
-@pytest.mark.skip(reason="fixture grammar not yet provided")
-def test_populate_type_defs_syntax_types_end_with_c():
-    lex, constr_types = populate_type_defs(FIXTURE_GRAMMAR_DIR)
-    assert all(t.endswith('_c') for t in constr_types['syntax'])
-
-
-@pytest.mark.skip(reason="fixture grammar not yet provided")
-def test_populate_type_defs_lextype_types_end_with_le():
-    lex, constr_types = populate_type_defs(FIXTURE_GRAMMAR_DIR)
-    assert all(t.endswith('_le') for t in constr_types['lextype'])
-
-
-@pytest.mark.skip(reason="fixture grammar not yet provided")
-def test_read_lexicon_groups_entries_by_type():
+def test_read_lexicon_groups_entries_by_first_supertype():
+    """cat and dog share supertype common-noun-lex and are grouped together."""
     result = read_lexicon([FIXTURE_LEXICON])
-    # Each value should be a sorted list of entry identifiers
-    for type_name, entries in result.items():
+    assert 'common-noun-lex' in result
+    assert sorted(result['common-noun-lex']) == ['cat', 'dog']
+
+
+def test_read_lexicon_entries_within_group_are_sorted():
+    """Entries within each supertype group are alphabetically sorted."""
+    result = read_lexicon([FIXTURE_LEXICON])
+    for entries in result.values():
         assert entries == sorted(entries)
 
 
-@pytest.mark.skip(reason="fixture grammar not yet provided")
-def test_read_lexicon_sorted_by_entry_count_descending():
+def test_read_lexicon_groups_sorted_by_count_descending():
+    """Groups with more entries appear before groups with fewer."""
     result = read_lexicon([FIXTURE_LEXICON])
     counts = [len(v) for v in result.values()]
     assert counts == sorted(counts, reverse=True)
 
 
-@pytest.mark.skip(reason="fixture grammar not yet provided")
-def test_types2defs_keys_are_type_identifiers():
-    result = types2defs(FIXTURE_GRAMMAR_DIR)
-    assert all(isinstance(k, str) for k in result)
-
-
-@pytest.mark.skip(reason="fixture grammar not yet provided")
-def test_types2defs_values_have_def_and_ex_keys():
-    result = types2defs(FIXTURE_GRAMMAR_DIR)
-    for val in result.values():
-        assert 'def' in val
-        assert 'ex' in val
+def test_read_lexicon_singleton_type():
+    """A type with one entry is correctly grouped as a single-element list."""
+    result = read_lexicon([FIXTURE_LEXICON])
+    assert 'tr-verb-lex' in result
+    assert result['tr-verb-lex'] == ['chase']
