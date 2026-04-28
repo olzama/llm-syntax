@@ -74,6 +74,45 @@ def _assign_style(label, color_counter, cmap):
     return cmap(color_counter % 10), 'o'
 
 
+def _run_pca(sim):
+    """Convert a similarity matrix to PCA coordinates.
+
+    Returns (df, explained) where df has columns PC1, PC2, Label and
+    explained is a list of two variance percentages.  PC1 is flipped if
+    needed so that 'Original NYT' appears on the left.
+    """
+    pca    = PCA(n_components=2)
+    coords = pca.fit_transform(1 - sim)
+    df     = pd.DataFrame(coords, columns=['PC1', 'PC2'])
+    df['Label'] = sim.index.tolist()
+    nyt_pc1 = df.loc[df['Label'] == 'Original NYT', 'PC1']
+    if not nyt_pc1.empty and nyt_pc1.values[0] > 0:
+        df['PC1'] *= -1
+    return df, pca.explained_variance_ratio_ * 100
+
+
+def _build_style_maps(labels):
+    """Return (color_map, marker_map) dicts keyed by label."""
+    cmap = plt.colormaps['tab10']
+    color_map, marker_map = {}, {}
+    for i, label in enumerate(labels):
+        color_map[label], marker_map[label] = _assign_style(label, i, cmap)
+    return color_map, marker_map
+
+
+def _inline_label_threshold(df):
+    """Return (nearest_dists, threshold) for deciding whether to draw inline labels.
+
+    Points farther than the 20th-percentile nearest-neighbour distance get
+    an inline text label; crowded points are left to the legend.
+    """
+    dm = pairwise_distances(df[['PC1', 'PC2']])
+    for i in range(len(dm)):
+        dm[i, i] = float('inf')
+    nearest = dm.min(axis=1)
+    return nearest, pd.Series(nearest).quantile(0.2)
+
+
 def plot_pca(input_path, output_path, title):
     """Run PCA on the cosine-distance matrix and save a scatter plot.
 
@@ -81,52 +120,28 @@ def plot_pca(input_path, output_path, title):
     output_path: path for the output PNG
     title:       plot title suffix (phenomenon name)
     """
-    sim = _load_similarity_matrix(input_path)
-    dist = 1 - sim
+    # Compute PCA and assign per-model visual styles
+    sim                      = _load_similarity_matrix(input_path)
+    df, explained            = _run_pca(sim)
+    color_map, marker_map    = _build_style_maps(df['Label'])
+    nearest_dists, threshold = _inline_label_threshold(df)
 
-    pca = PCA(n_components=2)
-    coords = pca.fit_transform(dist)
-    explained = pca.explained_variance_ratio_ * 100
-
-    df = pd.DataFrame(coords, columns=['PC1', 'PC2'])
-    df['Label'] = sim.index.tolist()
-
-    # Orient so Original NYT is on the left
-    if not df.loc[df['Label'] == 'Original NYT', 'PC1'].empty:
-        if df.loc[df['Label'] == 'Original NYT', 'PC1'].values[0] > 0:
-            df['PC1'] *= -1
-
-    cmap = plt.colormaps['tab10']
-    color_map, marker_map = {}, {}
-    color_counter = 0
-    for label in df['Label']:
-        color, marker = _assign_style(label, color_counter, cmap)
-        color_map[label] = color
-        marker_map[label] = marker
-        color_counter += 1
-
+    # Set up axes with 5% padding on each side
     x_min, x_max = df['PC1'].min(), df['PC1'].max()
     y_min, y_max = df['PC2'].min(), df['PC2'].max()
-    x_pad = (x_max - x_min) * 0.05
-    y_pad = (y_max - y_min) * 0.05
-
-    dist_matrix = pairwise_distances(df[['PC1', 'PC2']])
-    for i in range(len(dist_matrix)):
-        dist_matrix[i, i] = float('inf')
-    nearest_dists = dist_matrix.min(axis=1)
-    threshold = pd.Series(nearest_dists).quantile(0.2)
-
+    x_pad, y_pad = (x_max - x_min) * 0.05, (y_max - y_min) * 0.05
     fig, ax = plt.subplots(figsize=(10, 8))
     ax.set_xlim(x_min - x_pad, x_max + x_pad)
     ax.set_ylim(y_min - y_pad, y_max + y_pad)
 
+    # Plot each point; add an inline label if it is not too close to its neighbours
     for i, row in df.iterrows():
-        label = row['Label']
-        x, y = row['PC1'], row['PC2']
+        label, x, y = row['Label'], row['PC1'], row['PC2']
         ax.scatter(x, y, marker=marker_map[label], color=color_map[label], s=150)
         if nearest_dists[i] > threshold:
             ax.text(x + 0.004, y, label, fontsize=10, ha='left', va='center', color=color_map[label])
 
+    # Full legend (covers crowded points that were not labelled inline)
     handles = [
         plt.Line2D([0], [0], marker=marker_map[lbl], color='w', label=lbl,
                    markerfacecolor=color_map[lbl], markersize=10)
