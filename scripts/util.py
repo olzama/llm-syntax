@@ -166,3 +166,30 @@ def stat_significance(differences1, differences2):
     t_stat, p_value = stats.ttest_ind(differences1, differences2, equal_var=False)
     return t_stat, p_value
 
+
+def compute_ttr(frequencies, phenomena=None):
+    """Compute type-token ratio (TTR) for each model across phenomena.
+
+    frequencies: {phenomenon: {model: {type: count}}}
+    phenomena:   list of phenomena to include; defaults to all keys in frequencies.
+
+    Returns {phenomenon: {model: {'types': int, 'tokens': int, 'ttr': float}}}.
+    Types with a count of zero are excluded from the type count.
+    """
+    if phenomena is None:
+        phenomena = list(frequencies.keys())
+    results = {}
+    for phenomenon in phenomena:
+        if phenomenon not in frequencies:
+            continue
+        results[phenomenon] = {}
+        for model, type_counts in frequencies[phenomenon].items():
+            token_count = sum(type_counts.values())
+            type_count  = sum(1 for v in type_counts.values() if v > 0)
+            results[phenomenon][model] = {
+                'types':  type_count,
+                'tokens': token_count,
+                'ttr':    type_count / token_count if token_count > 0 else 0.0,
+            }
+    return results
+
