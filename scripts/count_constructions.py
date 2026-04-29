@@ -1,7 +1,7 @@
 import json
 import sys, os
 from delphin import itsdb, derivation
-from erg import get_n_supertypes, populate_type_defs
+from erg import get_n_supertypes, populate_type_defs, classify_node
 from util import serialize_dict
 import random
 
@@ -19,16 +19,7 @@ def traverse_derivation(deriv, types, preterminals, lex, depth, visited=None):
     for node in deriv.daughters:
         if not isinstance(node, derivation.UDFNode):
             continue
-        resolved_type = node.entity
-        if node.entity in preterminals:
-            category = 'lextype'
-            supertypes = get_n_supertypes(lex, node.entity, depth)
-            if supertypes:
-                resolved_type = list(supertypes[depth - 1])[0]
-        elif node.entity.endswith('lr'):
-            category = 'lexrule'
-        else:
-            category = 'constr'
+        category, resolved_type = classify_node(node, preterminals, lex, depth)
         types[category][resolved_type] = types[category].get(resolved_type, 0) + 1
         traverse_derivation(node, types, preterminals, lex, depth, visited)
 

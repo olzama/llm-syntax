@@ -5,7 +5,8 @@ Reads:
   - ERG TDL files (e.g. constructions.tdl, lextypes.tdl, lexicon.tdl)
 
 Imported by:
-  - count_constructions.py  (populate_type_defs, get_n_supertypes)
+  - count_constructions.py  (populate_type_defs, get_n_supertypes, classify_node)
+  - extract_examples.py     (populate_type_defs, classify_node)
   - extract_ex_JSD.py       (populate_type_defs, get_n_supertypes, read_lexicon)
   - construction_frequencies.py (get_n_supertypes, populate_type_defs, read_lexicon,
                                   types2defs, lexical_types)
@@ -43,6 +44,31 @@ def get_n_supertypes(lex, type_name, n):
         return depth_dict
 
     return _recurse(type_name, n, 0, None)
+
+
+def classify_node(node, preterminals, lex, depth):
+    """Classify a derivation node and resolve its type name.
+
+    node:         a UDFNode from a derivation tree.
+    preterminals: set of entity names that are preterminals in this derivation.
+    lex:          type hierarchy dict from populate_type_defs.
+    depth:        supertype depth for lextype resolution.
+
+    Returns (category, resolved_type) where:
+      - category is 'lextype', 'lexrule', or 'constr'
+      - resolved_type is the depth-N supertype name for lextypes, or node.entity otherwise
+    """
+    resolved_type = node.entity
+    if node.entity in preterminals:
+        category = 'lextype'
+        supertypes = get_n_supertypes(lex, node.entity, depth)
+        if supertypes:
+            resolved_type = list(supertypes[depth - 1])[0]
+    elif node.entity.endswith('lr'):
+        category = 'lexrule'
+    else:
+        category = 'constr'
+    return category, resolved_type
 
 
 def populate_type_defs(directory):

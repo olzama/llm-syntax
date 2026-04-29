@@ -243,7 +243,7 @@ def test_supertype_replaces_preterminal_entity():
             return {0: {'n_-_c_le'}}
         return None
 
-    with patch('count_constructions.get_n_supertypes', side_effect=mock_supertypes):
+    with patch('erg.get_n_supertypes', side_effect=mock_supertypes):
         traverse_derivation(deriv, types, preterminals=preterminals, lex={}, depth=1)
 
     print(f"\n  Input:    derivation of 'Not this year.', get_n_supertypes mocked: year_n1 -> n_-_c_le")
@@ -384,7 +384,7 @@ def test_supertype_resolution_merges_counts():
             return {0: {'n_-_c_le'}}
         return None
 
-    with patch('count_constructions.get_n_supertypes', side_effect=mock_supertypes):
+    with patch('erg.get_n_supertypes', side_effect=mock_supertypes):
         traverse_derivation(deriv, types, preterminals=preterminals, lex={}, depth=1)
 
     actual = types['lextype'].get('n_-_c_le')

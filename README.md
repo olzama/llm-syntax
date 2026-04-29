@@ -163,6 +163,46 @@ Bottom frequencies-llm-original-wikipedia-wsj-constr.png
 
 - numpy, pandas, matplotlib
 
+### PCA Plots
+
+`pca.py` performs PCA on pairwise cosine-distance matrices and produces scatter
+plots showing how models cluster by syntactic and lexical type distributions.
+
+#### Usage
+
+```bash
+python scripts/pca.py [input_dir] [output_dir]
+```
+
+Run from the repo root.
+
+#### Example
+
+```bash
+python scripts/pca.py \
+  analysis/cosine-pairs/models/norm-by-constr-count \
+  analysis/plots
+```
+
+> **Note:** On headless machines (no display), prefix with `MPLBACKEND=Agg`:
+> ```bash
+> MPLBACKEND=Agg python scripts/pca.py
+> ```
+
+#### Output Files
+
+Three PNG files written to `output_dir` (default: `analysis/plots`):
+
+```
+pca_syntax.png   — PCA of syntactic construction distances
+pca_lextype.png  — PCA of lexical type distances
+pca_lexrule.png  — PCA of lexical rule distances
+```
+
+#### Dependencies
+
+- numpy, pandas, matplotlib, scikit-learn
+
 ## Publications
 
 * Olga Zamaraeva, Dan Flickinger, Francis Bond, and Carlos Gómez-Rodríguez. 2025. *[Comparing LLM-generated and human-authored news text using formal syntactic theory](https://aclanthology.org/2025.acl-long.443/)*. In *Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)*, pages 9041–9060, Vienna, Austria. Association for Computational Linguistics.
