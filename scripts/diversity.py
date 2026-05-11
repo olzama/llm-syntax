@@ -131,12 +131,50 @@ def normalize_coverage(cov: float) -> float:
     if cov > 1.0: cov = cov / 100.0
     return max(1e-9, min(1.0, cov))
 
-def sanitize(name: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.+-]+", "_", name)
+def sanitize(name: str, max_len: int = 60) -> str:
+    s = re.sub(r"[^A-Za-z0-9_.+-]+", "_", name)
+    if len(s) > max_len:
+        import hashlib
+        s = s[:max_len] + "_" + hashlib.md5(name.encode()).hexdigest()[:8]
+    return s
 
 def is_punct_type(tname: str) -> bool:
     t = tname.lower()
     return t.startswith('pt') or ('pct' in t) or t.endswith('plr')
+
+def _subdir(outdir: str, kind: str) -> str:
+    """Return path to outdir/kind, creating it if needed."""
+    path = os.path.join(outdir, kind)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+# --------------------------- Model ID registry ---------------------------
+_DEFAULT_REGISTRY = os.path.join('analysis', 'model-ids.json')
+
+def load_or_update_registry(registry_path: str, models) -> dict:
+    """Load model-ID registry; assign new IDs to unseen models and save back.
+
+    IDs are stable integers — new models always get the next available ID.
+    """
+    registry = {}
+    if os.path.exists(registry_path):
+        with open(registry_path, 'r', encoding='utf-8') as f:
+            registry = json.load(f)
+    changed = False
+    next_id = max(registry.values(), default=0) + 1
+    for m in sorted(models):
+        if m not in registry:
+            registry[m] = next_id; next_id += 1; changed = True
+    if changed:
+        os.makedirs(os.path.dirname(os.path.abspath(registry_path)), exist_ok=True)
+        with open(registry_path, 'w', encoding='utf-8') as f:
+            json.dump(registry, f, ensure_ascii=False, indent=2)
+    return registry
+
+def group_tag(models, registry: dict) -> str:
+    """Return a short group tag like 'g1.2.3' from a list of model names."""
+    ids = sorted(registry[m] for m in models if m in registry)
+    return 'g' + '.'.join(str(i) for i in ids)
 
 # --------------------------- Learning curves ---------------------------
 def learning_curve_from_counter(counter: Counter, n_bins: int, rng: random.Random):
@@ -170,24 +208,27 @@ def plot_learning_curves(phenom: str, model_counters: Dict[str, Counter], outdir
             ax1.plot(xs, sh_vals, label=model, linewidth=1.8, alpha=0.9); any1 = True
         if si_vals and len(si_vals) == len(xs):
             ax2.plot(xs, si_vals, label=model, linewidth=1.8, alpha=0.9); any2 = True
+    plots_dir = _subdir(outdir, 'plots')
     if any1:
         ax1.set_xlabel("Percentage of Data (%)"); ax1.set_ylabel("Shannon")
         ax1.set_title(f"Learning Curves — {phenom} (Shannon)")
         ax1.grid(True, linestyle='--', alpha=0.3); ax1.legend(fontsize=8, loc='best')
-        plt.tight_layout(); plt.savefig(os.path.join(outdir, f"learning-{phenom}-shannon.png"), dpi=150, bbox_inches='tight')
+        plt.tight_layout(); plt.savefig(os.path.join(plots_dir, f"learning-{phenom}-shannon.png"), dpi=150, bbox_inches='tight')
     plt.close(fig1)
     if any2:
         ax2.set_xlabel("Percentage of Data (%)"); ax2.set_ylabel("Simpson")
         ax2.set_title(f"Learning Curves — {phenom} (Simpson)")
         ax2.grid(True, linestyle='--', alpha=0.3); ax2.legend(fontsize=8, loc='best')
-        plt.tight_layout(); plt.savefig(os.path.join(outdir, f"learning-{phenom}-simpson.png"), dpi=150, bbox_inches='tight')
+        plt.tight_layout(); plt.savefig(os.path.join(plots_dir, f"learning-{phenom}-simpson.png"), dpi=150, bbox_inches='tight')
     plt.close(fig2)
 
 # --------------------------- Plotting: core explain visuals ---------------------------
-def butterfly_explain(keys, p, q, contribs, model_a, model_b, outpath, coverage=0.9, max_top=60):
+def butterfly_explain(keys, p, q, contribs, model_a, model_b, outpath, coverage=0.9, max_top=60, json_dir=None, groups=None):
     """
     Draw the butterfly plot AND emit a JSON file with the exact Top-K types used.
-    JSON path: <outpath without .png>-top-contributors.json
+
+    json_dir: if given, write the JSON there instead of alongside the PNG.
+    groups: if given, embedded in the JSON as {"A": {"label": ..., "models": [...]}, "B": {...}}.
     """
     coverage = normalize_coverage(coverage)
     delta = p - q
@@ -233,7 +274,10 @@ def butterfly_explain(keys, p, q, contribs, model_a, model_b, outpath, coverage=
 
     # ---- JSON export (same Top-K as in the butterfly) ----
     base_stem = os.path.splitext(outpath)[0]
-    json_path = base_stem + "-top-contributors.json"
+    if json_dir is not None:
+        json_path = os.path.join(json_dir, os.path.basename(base_stem) + "-top-contributors.json")
+    else:
+        json_path = base_stem + "-top-contributors.json"
 
     # Build rows sorted by contribution desc over the selected Top-K
     idx_sorted = top_idx[np.argsort(contribs[top_idx])[::-1]]
@@ -247,7 +291,6 @@ def butterfly_explain(keys, p, q, contribs, model_a, model_b, outpath, coverage=
             "p_B": float(q[i]),
             "delta": float(p[i] - q[i]),
             "side": "A" if (p[i] - q[i]) > 0 else "B",
-            "models": {"A": model_a, "B": model_b}
         })
 
     payload = {
@@ -259,6 +302,8 @@ def butterfly_explain(keys, p, q, contribs, model_a, model_b, outpath, coverage=
         },
         "types": rows
     }
+    if groups is not None:
+        payload["groups"] = groups
     try:
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -343,6 +388,9 @@ def plot_scatter_for_phenomenon(phenom: str, model_counters: Dict[str, Counter],
         si_scores.append((model, simpson_diversity_index(names)))
     sh_scores.sort(key=lambda x: (x[1], x[0])); si_scores.sort(key=lambda x: (x[1], x[0]))
 
+    plots_dir = _subdir(outdir, 'plots')
+    mds_dir = _subdir(outdir, 'mds')
+
     def scatter(scores, idx_label, fname):
         if not scores: return
         models = [m for m, _ in scores]
@@ -369,12 +417,11 @@ def plot_scatter_for_phenomenon(phenom: str, model_counters: Dict[str, Counter],
             handles.append(Patch(facecolor=st["color"], label=st["label"]))
         if handles:
             ax.legend(handles=handles, loc="upper left", fontsize=8, title="Model Type", frameon=True)
-        plt.tight_layout(); outp = os.path.join(outdir, fname); plt.savefig(outp, dpi=150, bbox_inches="tight"); plt.close()
+        plt.tight_layout(); outp = os.path.join(plots_dir, fname); plt.savefig(outp, dpi=150, bbox_inches="tight"); plt.close()
 
-    os.makedirs(outdir, exist_ok=True)
     def save_md(scores, stem):
         if not scores: return
-        p = os.path.join(outdir, f"{stem}.md")
+        p = os.path.join(mds_dir, f"{stem}.md")
         with open(p, "w", encoding="utf-8") as f:
             f.write("| Model | Diversity |\n| --- | --- |\n")
             for m, v in scores: f.write(f"| {m} | {v:.3f} |\n")
@@ -396,29 +443,38 @@ def group_mean_prob(model_counters: Dict[str, Counter], models: Sequence[str]) -
     mean = M.mean(axis=0)
     return {k: float(mean[i]) for i, k in enumerate(keys)}
 
-def run_explain_for_phenom(phenom, model_counters, outdir, model_a, model_b, coverage, max_top, group_map=None, suffix: str=""):
+def run_explain_for_phenom(phenom, model_counters, outdir, model_a, model_b, registry, coverage, max_top, group_map=None, suffix: str=""):
     keys = p = q = None
     if model_a in model_counters and model_b in model_counters:
         p_dict = to_prob(model_counters[model_a]); q_dict = to_prob(model_counters[model_b])
         keys, p, q = align_probs(p_dict, q_dict, eps=1e-12)
     if keys is None: return
     contribs = jsd_contributions(p, q)
-    base = f"explain-jsd-{sanitize(phenom)}{suffix}-{sanitize(model_a)}--vs--{sanitize(model_b)}"
-    butterfly_explain(keys, p, q, contribs, model_a, model_b, os.path.join(outdir, base + "-butterfly.png"), coverage, max_top)
-    cumulative_curve(contribs, os.path.join(outdir, base + "-cumulative.png"), coverage, max_top)
+    plots_dir = _subdir(outdir, 'plots')
+    json_dir = _subdir(outdir, 'json')
+    base = f"{phenom}{suffix}-{group_tag([model_a], registry)}--vs--{group_tag([model_b], registry)}"
+    groups = {"A": {"label": model_a, "models": [model_a]}, "B": {"label": model_b, "models": [model_b]}}
+    butterfly_explain(keys, p, q, contribs, model_a, model_b, os.path.join(plots_dir, base + "-butterfly.png"), coverage, max_top, json_dir=json_dir, groups=groups)
+    cumulative_curve(contribs, os.path.join(plots_dir, base + "-cumulative.png"), coverage, max_top)
     if group_map:
-        group_butterfly(keys, p, q, contribs, model_a, model_b, os.path.join(outdir, base + "-group-butterfly.png"), group_map, coverage, max_top)
+        group_butterfly(keys, p, q, contribs, model_a, model_b, os.path.join(plots_dir, base + "-group-butterfly.png"), group_map, coverage, max_top)
 
-def run_group_explain_for_phenom(phenom, model_counters, outdir, groupA, groupB, coverage, max_top, group_map=None, permute_models=0, rng_seed=1337, suffix: str=""):
+def run_group_explain_for_phenom(phenom, model_counters, outdir, groupA, groupB, registry, coverage, max_top, group_map=None, permute_models=0, rng_seed=1337, suffix: str=""):
     p_mean = group_mean_prob(model_counters, groupA); q_mean = group_mean_prob(model_counters, groupB)
     if not p_mean or not q_mean: return
     keys, p, q = align_probs(p_mean, q_mean, eps=1e-12); contribs = jsd_contributions(p, q); jsd_total = float(contribs.sum())
-    labelA = "GRP{" + ",".join(groupA) + "}"; labelB = "GRP{" + ",".join(groupB) + "}"
-    base = f"explain-jsd-{sanitize(phenom)}{suffix}-{sanitize(labelA)}--vs--{sanitize(labelB)}"
-    butterfly_explain(keys, p, q, contribs, labelA, labelB, os.path.join(outdir, base + "-butterfly.png"), coverage, max_top)
-    cumulative_curve(contribs, os.path.join(outdir, base + "-cumulative.png"), coverage, max_top)
+    displayA = "GRP{" + ",".join(groupA) + "}"; displayB = "GRP{" + ",".join(groupB) + "}"
+    base = f"{phenom}{suffix}-{group_tag(groupA, registry)}--vs--{group_tag(groupB, registry)}"
+    plots_dir = _subdir(outdir, 'plots')
+    json_dir = _subdir(outdir, 'json')
+    groups = {
+        "A": {"label": group_tag(groupA, registry), "models": list(groupA)},
+        "B": {"label": group_tag(groupB, registry), "models": list(groupB)},
+    }
+    butterfly_explain(keys, p, q, contribs, displayA, displayB, os.path.join(plots_dir, base + "-butterfly.png"), coverage, max_top, json_dir=json_dir, groups=groups)
+    cumulative_curve(contribs, os.path.join(plots_dir, base + "-cumulative.png"), coverage, max_top)
     if group_map:
-        group_butterfly(keys, p, q, contribs, labelA, labelB, os.path.join(outdir, base + "-group-butterfly.png"), group_map, coverage, max_top)
+        group_butterfly(keys, p, q, contribs, displayA, displayB, os.path.join(plots_dir, base + "-group-butterfly.png"), group_map, coverage, max_top)
     if permute_models and permute_models > 0:
         rng = random.Random(rng_seed)
         present = [m for m in model_counters.keys() if m in set(groupA) | set(groupB)]
@@ -432,7 +488,7 @@ def run_group_explain_for_phenom(phenom, model_counters, outdir, groupA, groupB,
             _, pp, qq = align_probs(p_perm, q_perm, eps=1e-12); jsd_null.append(float(jsd_contributions(pp, qq).sum()))
         if jsd_null:
             ge = sum(1 for v in jsd_null if v >= jsd_total); pval = (ge + 1) / (len(jsd_null) + 1)
-            txt = os.path.join(outdir, base + "-perm-summary.txt")
+            txt = os.path.join(json_dir, base + "-perm-summary.txt")
             with open(txt, "w", encoding="utf-8") as f:
                 f.write(f"Observed group JSD: {jsd_total:.6f}\n")
                 f.write(f"Permutations: {len(jsd_null)}\n")
@@ -440,6 +496,53 @@ def run_group_explain_for_phenom(phenom, model_counters, outdir, groupA, groupB,
                 f.write(f"Null mean: {np.mean(jsd_null):.6f}, std: {np.std(jsd_null):.6f}\n")
                 q05, q50, q95 = np.quantile(jsd_null, [0.05, 0.5, 0.95])
                 f.write(f"Null quantiles: 5%={q05:.6f}, 50%={q50:.6f}, 95%={q95:.6f}\n")
+
+# --------------------------- Output README ---------------------------
+def write_output_readme(outdir: str, registry_path: str):
+    lines = [
+        "# Diversity analysis outputs",
+        "",
+        "## Directory layout",
+        "",
+        "| Directory | Contents |",
+        "| --------- | -------- |",
+        "| `plots/`  | PNG figures: diversity scatter plots, JSD butterfly plots, cumulative JSD curves |",
+        "| `mds/`    | Markdown tables with per-model Shannon/Simpson diversity scores |",
+        "| `json/`   | Top-K JSD contributors JSON files and permutation-test summaries |",
+        "",
+        "## Filename patterns",
+        "",
+        "**Diversity scatter plots:**",
+        "```",
+        "plots/diversity-{phenom}-{index}.png",
+        "mds/diversity-{phenom}-{index}.md",
+        "```",
+        "",
+        "**JSD explain outputs** (pairwise or group comparisons):",
+        "```",
+        "plots/{phenom}-{gA}--vs--{gB}-butterfly.png",
+        "plots/{phenom}-{gA}--vs--{gB}-cumulative.png",
+        "json/{phenom}-{gA}--vs--{gB}-top-contributors.json",
+        "```",
+        "",
+        "where `{phenom}` is `constr`, `lextype`, `lexrule`, or `lexentries`;",
+        "`{gA}` and `{gB}` are group tags of the form `g1.2.3` (dot-separated model IDs).",
+        "",
+        "## Model ID registry",
+        "",
+        f"Model IDs are defined in `{registry_path}`.",
+        "Each model name maps to a stable integer ID.",
+        "New models encountered during a run are assigned the next available ID and the registry is updated.",
+        "",
+        "## Top-contributors JSON format",
+        "",
+        "Each `*-top-contributors.json` contains:",
+        "- `meta`: coverage target/achieved, K (number of types), total JSD",
+        "- `groups`: model membership and IDs for sides A and B",
+        "- `types`: ranked list of top-K types with JSD contribution, probability on each side, and delta",
+    ]
+    with open(os.path.join(outdir, 'README.md'), 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines) + '\n')
 
 # --------------------------- Main ---------------------------
 def main():
@@ -449,6 +552,7 @@ def main():
     ap.add_argument("--phenomena", nargs="+", choices=SUPPORTED_PHENOMENA, default=["constr", "lextype", "lexrule", "lexentries"], help="Phenomena to analyze.")
     ap.add_argument("--explain", nargs=2, metavar=("MODEL_A", "MODEL_B"), help="Pairwise JSD explain plots for two models.")
     ap.add_argument("--group-explain", nargs=2, metavar=("GROUP_A", "GROUP_B"), help='Compare two comma-separated model lists, e.g., "A,B,C" "D,E,F".')
+    ap.add_argument("--model-registry", default=_DEFAULT_REGISTRY, help=f"JSON file mapping model names to short integer IDs (default: {_DEFAULT_REGISTRY}).")
     ap.add_argument("--coverage", type=float, default=0.9, help="Coverage target for Top-K selection (fraction or percent).")
     ap.add_argument("--max-top", type=int, default=60, help="Upper cap on Top-K items/groups (default 60).")
     ap.add_argument("--group-map", type=str, help="Optional JSON {type: group} for group-level butterfly.")
@@ -467,6 +571,11 @@ def main():
     if not data:
         print("No non-empty phenomena after merging (all were empty)."); return
 
+    all_models = set()
+    for model_counters in data.values():
+        all_models.update(model_counters.keys())
+    registry = load_or_update_registry(args.model_registry, all_models)
+
     group_map = None
     if args.group_map:
         with open(args.group_map, "r", encoding="utf-8") as f:
@@ -475,7 +584,6 @@ def main():
         else: print("Warning: --group-map JSON must be a dict of {type: group}; ignoring.")
 
     for phenom, model_counters in data.items():
-        # base view
         plot_scatter_for_phenomenon(phenom, model_counters, args.output_dir, suffix="")
         if args.learning: plot_learning_curves(phenom, model_counters, args.output_dir, n_bins=args.learning, seed=args.seed)
 
@@ -491,11 +599,13 @@ def main():
         for suf, vc in views:
             if args.explain:
                 model_a, model_b = args.explain[0], args.explain[1]
-                run_explain_for_phenom(phenom, vc, args.output_dir, model_a, model_b, coverage=args.coverage, max_top=args.max_top, group_map=group_map, suffix=suf)
+                run_explain_for_phenom(phenom, vc, args.output_dir, model_a, model_b, registry, coverage=args.coverage, max_top=args.max_top, group_map=group_map, suffix=suf)
             if args.group_explain:
                 grpA = [s for s in args.group_explain[0].split(",") if s.strip()]
                 grpB = [s for s in args.group_explain[1].split(",") if s.strip()]
-                run_group_explain_for_phenom(phenom, vc, args.output_dir, grpA, grpB, coverage=args.coverage, max_top=args.max_top, group_map=group_map, permute_models=args.permute_models, rng_seed=args.seed, suffix=suf)
+                run_group_explain_for_phenom(phenom, vc, args.output_dir, grpA, grpB, registry, coverage=args.coverage, max_top=args.max_top, group_map=group_map, permute_models=args.permute_models, rng_seed=args.seed, suffix=suf)
+
+    write_output_readme(args.output_dir, args.model_registry)
 
 if __name__ == "__main__":
     main()

@@ -68,47 +68,41 @@ python scripts/diversity.py [JSON_FILES...] [OPTIONS]
 - `--split-punct`: Also produce separate analyses with and without punctuation-related types
 - `--explain MODEL_A MODEL_B`: Pairwise JSD explain butterfly plot for two models
 - `--group-explain "Model1,Model2,..." "Model3,Model4,..."`: Same as `--explain` but for groups of models
+- `--model-registry PATH`: JSON file mapping model names to short integer IDs used in output filenames (default: `analysis/model-ids.json`)
 - `--coverage`: Coverage target for Top-K type selection (default: 0.9)
 - `--max-top`: Upper cap on number of types shown in explain plots (default: 60)
 - `--learning N`: Produce learning curves with N bins per phenomenon
 
 #### Examples
 
-Generate diversity plots for constructions and lexical types (recommended):
+Diversity scatter plots only:
 ```bash
-python scripts/diversity.py \
-  analysis/frequencies-json/frequencies-2023.json \
-  analysis/frequencies-json/frequencies-2025.json \
-  --output-dir analysis/plots/plots-diversity \
-  --phenomena constr lextype \
-  --split-punct
-```
-
-> **Note:** On headless machines (no display), prefix with `MPLBACKEND=Agg` to avoid a segfault:
-> ```bash
-> MPLBACKEND=Agg python scripts/diversity.py ...
-> ```
-
-All phenomena, custom output directory:
-```bash
-python scripts/diversity.py analysis/frequencies-json/*.json --output-dir results
+python scripts/diversity.py analysis/frequencies-json/frequencies-2023.json --output-dir analysis/diversity-repro
 ```
 
 Pairwise JSD explain plot for two models:
 ```bash
-python scripts/diversity.py analysis/frequencies-json/*.json \
-  --explain NYT-2023-human Llama7B-2023-llm \
-  --coverage 0.9 --max-top 40
+python scripts/diversity.py analysis/frequencies-json/frequencies-2023.json --explain NYT-2023-human Llama7B-2023-llm --output-dir analysis/diversity-repro
 ```
+
+Group JSD explain plot (humans vs 2023 LLMs):
+```bash
+python scripts/diversity.py analysis/frequencies-json/frequencies-2023.json --output-dir analysis/diversity-repro --group-explain "NYT-2023-human,WSJ-1987-human,Wikipedia-2008-human" "Falcon7B-2023-llm,Llama65B-2023-llm,Llama30B-2023-llm,Mistral7B-2023-llm,Llama7B-2023-llm,Llama13B-2023-llm"
+```
+
+> **Note:** On headless machines (no display), prefix with `MPLBACKEND=Agg` to avoid a segfault.
 
 #### Output Files
 
-Outputs are written to two subdirectories of `--output-dir`:
+Outputs are written to three subdirectories of `--output-dir`, with a `README.md` explaining the layout:
 
-- `png/diversity-{phenom}{suffix}-{index}.png` — scatter plots of diversity scores
-- `md/diversity-{phenom}{suffix}-{index}.md` — markdown tables with per-model diversity scores
+- `plots/` — scatter PNGs, butterfly plots, cumulative JSD curves
+- `mds/` — markdown tables with per-model diversity scores
+- `json/` — top-K contributors JSON (includes `"groups"` field with model membership)
 
-Where `{phenom}` is one of `constr`, `lextype`, `lexrule`, `lexentries`; `{suffix}` is empty, `_punct`, or `_xpunct` (when using `--split-punct`); and `{index}` is `shannon` or `simpson`.
+Filename pattern for explain outputs: `{phenom}-{gA}--vs--{gB}-{kind}.{ext}`
+
+where `{gA}` and `{gB}` are group tags of the form `g1.3.4` (dot-separated IDs from `analysis/model-ids.json`). `{phenom}` is one of `constr`, `lextype`, `lexrule`, `lexentries`; `{kind}` is `butterfly`, `cumulative`, or `top-contributors`.
 
 #### Dependencies
 
@@ -202,6 +196,33 @@ pca_lexrule.png  — PCA of lexical rule distances
 #### Dependencies
 
 - numpy, pandas, matplotlib, scikit-learn
+
+### Author Analysis Preprocessing
+
+`extract_sentences.py` tokenizes NYT article paragraphs into sentences using [Stanza](https://stanfordnlp.github.io/stanza/), filters to single-authored articles, and writes per-author sentence files. This is the first step of the author-level diversity analysis pipeline.
+
+**Input:** Raw NYT articles JSON — an array of article objects with `lead_paragraph`, `byline`, and `section_name` fields. Not included in the repo due to licensing restrictions.
+
+#### Usage
+
+```bash
+python scripts/extract_sentences.py <nyt_json> --output-dir analysis/sentences
+```
+
+#### Output Files
+
+| File | Description |
+| ---- | ----------- |
+| `by-one-author/original-<Author>.txt` | One file per single author with their sentences |
+| `sentences2author.json` | Maps each sentence (by key) to its author(s) and text |
+| `more_than_100.json` | Authors with more than 100 sentences |
+| `num_sentences_per_author.png` | Histogram of sentence counts per author |
+
+Multi-authored articles (bylines with `,` or ` and `) and a fixed exclusion list of institutional bylines (e.g. "The New York Times") are filtered out.
+
+#### Dependencies
+
+- stanza, matplotlib, numpy
 
 ## Publications
 

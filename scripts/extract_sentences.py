@@ -1,184 +1,164 @@
-import sys, os
+"""
+extract_sentences.py — tokenize NYT article paragraphs into sentences,
+filter to single-authored articles, and write per-author sentence files.
+
+First step of the author-level diversity analysis pipeline.  Output feeds
+sentences2authors.py and the author comparison chain.
+
+Multi-authored bylines (containing ',' or ' and ') and a fixed exclusion list
+of institutional bylines (e.g. "The New York Times") are filtered out.
+
+Produces:
+  <output_dir>/by-one-author/original-<Author_Name>.txt  — sentences per single author
+  <output_dir>/sentences2author.json                      — sentence key -> author(s) + text
+  <output_dir>/more_than_100.json                         — authors with >100 sentences
+  <output_dir>/num_sentences_per_author.png               — histogram
+
+Usage:
+    python scripts/extract_sentences.py <nyt_json> --output-dir <dir>
+
+Arguments:
+    nyt_json        Path to raw NYT articles JSON (array of article objects with
+                    lead_paragraph, byline, and section_name fields).
+
+Options:
+    --output-dir    Directory to write all outputs (default: analysis/sentences).
+"""
+
+import argparse
 import json
-import stanza
+import os
+
 import matplotlib.pyplot as plt
 import numpy as np
+import stanza
+
 from util import generate_key, load_json_data
 
-EXCLUDE_AUTHORS = {'New York Times Games', ' York Times Audio', 'New York Times Audio', 'The Learning Network',
-                   'Florence Fabricant',
-                   'The New York Times', 'The New York Times Cooking', 'New York Times Games', 'New York Times Opinion',
-                   'ABC Australia', 'The New York Times Magazine', 'News Nation', 'NBC News', 'Nbc news',
-                   'The New York Times Books Staff',
-                   }
+EXCLUDE_AUTHORS = {
+    'New York Times Games', ' York Times Audio', 'New York Times Audio',
+    'The Learning Network', 'Florence Fabricant', 'The New York Times',
+    'The New York Times Cooking', 'New York Times Opinion', 'ABC Australia',
+    'The New York Times Magazine', 'News Nation', 'NBC News', 'Nbc news',
+    'The New York Times Books Staff',
+}
 
-# Function to tokenize paragraphs into sentences
+_DEFAULT_OUTPUT_DIR = os.path.join('analysis', 'sentences')
+
+
 def tokenize_paragraph(paragraph, stz):
     doc = stz(paragraph)
-    sentences = [sentence.text for sentence in doc.sentences]
-    return sentences
+    return [sentence.text for sentence in doc.sentences]
 
 
-def write_per_section(data, fname):
-    total_sentences = 0
-    for sec, sentences in data.items():
-        clean_sec = sec.replace(" ", "_").replace("&", "and").replace(".", "")
-        # Create a filename with the section key
-        filename = f"{fname}-{clean_sec}.txt"
-        # Create a directory if it doesn't exist
-        directory = f'/mnt/kesha/llm-syntax-data/raw-sentences/per-section/{clean_sec}/'
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        # Write sentences to the file
-        with open(directory + filename, 'w') as file:
-            for sentence in sentences:
-                file.write(sentence + "\n")  # Write each sentence on a new line
-        total_sentences += len(sentences)
-        #print(f"{len(sentences)} sentences for {sec} have been saved in {filename}")
-    return total_sentences
+def is_single_authored(author):
+    """Return True if byline represents a single, non-excluded author."""
+    if not author:
+        return False
+    if ',' in author or ' and ' in author:
+        return False
+    if author[2:].strip() in EXCLUDE_AUTHORS:
+        return False
+    return True
 
 
-def write_all_sentences(data, fname):
-    # Create a single file containing all sentences for the model (or "original")
-    all_sentences = []
-    for sentences in data.values():
-        all_sentences.extend(sentences)
-    # Write all sentences to a single file
-    with open(f'/mnt/kesha/llm-syntax-data/raw-sentences/{fname}.txt', 'w') as file:
-        for sentence in all_sentences:
-            file.write(sentence + "\n")
-    #print(f"Total {len(all_sentences)} sentences written for {fname} in {fname}.txt")
+def tokenize_articles(articles, stz):
+    """Tokenize lead paragraphs; build per-author sentence lists and sentence->author map.
 
-
-if __name__ == '__main__':
-    # Initialize the pipeline for sentence segmentation
-    stz = stanza.Pipeline('en', processors='tokenize')
-    path_to_generated_data = sys.argv[1]
-    model_names = ['falcon_7B', 'llama_7B', 'llama_13B', 'llama_30B', 'llama_65B', 'mistral_7B']
-    original = load_json_data(sys.argv[2])
-    original_per_section = {}
+    Returns:
+        per_author:      {author: [sentence, ...]}  sorted by sentence count descending
+        sentence2authors: {sentence_key: {'authors': {author: count}, 'sentence': str}}
+    """
     per_author = {}
     sentence2authors = {}
-    sen_count = 0
-    # Process the original data
-    #for i in range(10):
-    for i in range(len(original)):
-        print("Tokenizing paragraph %d..." % i)
-        sec = original[i]['section_name']
-        author = original[i]['byline']['original']
-        if sec not in original_per_section:
-            if sec:
-                original_per_section[sec] = []
-        if original[i]['lead_paragraph']:
-            s = tokenize_paragraph(original[i]['lead_paragraph'], stz)
-            original_per_section[sec].extend(s)
-            for sen in s:
-                sen_key = generate_key(sen)
-                if sen_count not in sentence2authors:
-                    sentence2authors[sen_key] = {'authors': {}, 'sentence': None}
-                if author not in sentence2authors[sen_key]['authors']:
-                    sentence2authors[sen_key]['authors'][author] = 0
-                sentence2authors[sen_key]['sentence'] = sen
-                sentence2authors[sen_key]['authors'][author] += 1
-                sen_count += 1
-            if author not in per_author:
-                per_author[author] = []
-            per_author[author].extend(s)
-
-    # Sort by number of sentences per author:
-    per_author = {k: v for k, v in sorted(per_author.items(), key=lambda item: len(item[1]), reverse=True)}
-    single_authored = {}
-    # Report the number of sentences per author, including the maximum, the mean, and the median.
-    for author, sentences in per_author.items():
-        if (not author) or ',' in author or ' and ' in author or author[2:].strip() in EXCLUDE_AUTHORS:
+    for i, article in enumerate(articles):
+        print(f"Tokenizing paragraph {i}...")
+        author = article['byline']['original']
+        if not article['lead_paragraph']:
             continue
-        single_authored[author] = sentences
-        clean_author = author.replace(" ", "_").replace("&", "and").replace(".", "")
-        if len(clean_author) > 50:
-            clean_author = "TooManyAuthors"
-        filename = f"original-{clean_author}.txt"
-        directory = f'/mnt/kesha/llm-syntax-data/by-one-author/'
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        with open(directory + filename, 'w') as file:
-            for sentence in sentences:
-                file.write(sentence + "\n")
-    # Report maximum, mean, and median number of sentences per author:
-    num_authors = len(single_authored)
-    num_sentences = sum([len(sentences) for sentences in single_authored.values()])
-    max_sentences = len(list(single_authored.values())[0])
-    mean_sentences = num_sentences / num_authors
-    median_sentences = len(list(single_authored.values())[num_authors // 2])
-    print(f"Number of authors: {num_authors}")
-    print(f"Number of sentences: {num_sentences}")
-    print(f"Maximum number of sentences per author: {max_sentences}")
-    print(f"Mean number of sentences per author: {mean_sentences}")
-    print(f"Median number of sentences per author: {median_sentences}")
-    print(f"Authors with more than 100 sentences: {len([1 for sentences in single_authored.values() if len(sentences) > 100])}")
-    print(f"Authors with more than 50 sentences: {len([1 for sentences in single_authored.values() if len(sentences) > 50])}")
-    print(f"Authors with more than 25 sentences: {len([1 for sentences in single_authored.values() if len(sentences) > 25])}")
+        sentences = tokenize_paragraph(article['lead_paragraph'], stz)
+        for sen in sentences:
+            sen_key = generate_key(sen)
+            entry = sentence2authors.setdefault(sen_key, {'authors': {}, 'sentence': sen})
+            entry['authors'][author] = entry['authors'].get(author, 0) + 1
+        per_author.setdefault(author, []).extend(sentences)
+    per_author = dict(sorted(per_author.items(), key=lambda kv: len(kv[1]), reverse=True))
+    return per_author, sentence2authors
 
-    # Plot number of authors per number of sentences:
-    num_sentences_per_author = [len(sentences) for sentences in single_authored.values()]
-    plt.hist(num_sentences_per_author, bins=np.arange(0, 100, 5))
+
+def filter_single_authored(per_author):
+    """Return only entries whose byline represents a single, non-excluded author."""
+    return {a: s for a, s in per_author.items() if is_single_authored(a)}
+
+
+def write_author_files(single_authored, authors_dir):
+    """Write one sentence-per-line .txt file per author into authors_dir."""
+    for author, sentences in single_authored.items():
+        clean = author.replace(' ', '_').replace('&', 'and').replace('.', '')
+        if len(clean) > 50:
+            clean = 'TooManyAuthors'
+        with open(os.path.join(authors_dir, f'original-{clean}.txt'), 'w') as f:
+            for sentence in sentences:
+                f.write(sentence + '\n')
+
+
+def report_stats(single_authored):
+    """Print sentence-count summary statistics to stdout."""
+    vals = list(single_authored.values())
+    n = len(vals)
+    total = sum(len(s) for s in vals)
+    print(f"Number of authors: {n}")
+    print(f"Number of sentences: {total}")
+    print(f"Maximum sentences per author: {len(vals[0])}")
+    print(f"Mean sentences per author: {total / n:.1f}")
+    print(f"Median sentences per author: {len(vals[n // 2])}")
+    print(f"Authors >100 sentences: {sum(1 for s in vals if len(s) > 100)}")
+    print(f"Authors  >50 sentences: {sum(1 for s in vals if len(s) > 50)}")
+    print(f"Authors  >25 sentences: {sum(1 for s in vals if len(s) > 25)}")
+
+
+def save_histogram(single_authored, output_dir):
+    """Save a histogram of sentence counts per author as a PNG."""
+    counts = [len(s) for s in single_authored.values()]
+    plt.hist(counts, bins=np.arange(0, 100, 5))
     plt.xlabel('Number of sentences')
     plt.ylabel('Number of authors')
     plt.title('Number of sentences per author')
-    plt.savefig('/mnt/kesha/llm-syntax-data/num_sentences_per_author.png')
-    with open('/mnt/kesha/llm-syntax-data/sentences2author.json', 'w', encoding='utf-8') as f:
-        json.dump(sentence2authors, f, ensure_ascii=False)
-    # List of authors with more than 100 sentences:
-    more_than_hundred = [author for author, sentences in single_authored.items() if len(sentences) > 100]
-    with open('/mnt/kesha/llm-syntax-data/more_than_100.json', 'w') as file:
-        json.dump(more_than_hundred, file, ensure_ascii=False)
-    # write_all_sentences(original_per_section, "original")
-    # original_sentence_count = write_per_section(original_per_section, "original")
-    #
-    # # Process the generated data for each model
-    # generated_per_model_per_section = {}
-    # for model in model_names:
-    #     print(f"Processing {model}...")
-    #     generated_per_model_per_section[model] = {}
-    #     generated = load_json_data(path_to_generated_data + model + '.json')
-    #     assert len(generated) == len(original)
-    #     #for i in range(10):
-    #     for i in range(len(generated)):
-    #         print("Tokenizing paragraph %d..." % i)
-    #         sec = original[i]['section_name']
-    #         if sec not in generated_per_model_per_section[model]:
-    #             if sec:
-    #                 generated_per_model_per_section[model][sec] = []
-    #         if original[i]['lead_paragraph']:
-    #             generated_per_model_per_section[model][sec].extend(
-    #                 tokenize_paragraph(generated[i]['lead_paragraph'], stz))
-    #
-    #     # Write out the model sentences
-    #     write_all_sentences(generated_per_model_per_section[model], model)
-    #     generated_sentence_count = write_per_section(generated_per_model_per_section[model], model)
-    #
-    # # Create a dictionary to store the count of sentences per section for original and generated
-    # orig_sentence_counts = {key: len(sentences) for key, sentences in original_per_section.items()}
-    # gen_sentence_counts = {
-    #     model: {key: len(sentences) for key, sentences in generated_per_model_per_section[model].items()} for model in
-    #     model_names}
-    #
-    # # Sort the dictionaries by the count of sentences in descending order
-    # orig_sorted_sentence_counts = dict(sorted(orig_sentence_counts.items(), key=lambda item: item[1], reverse=True))
-    # gen_sorted_sentence_counts = {model: dict(sorted(counts.items(), key=lambda item: item[1], reverse=True)) for
-    #                               model, counts in gen_sentence_counts.items()}
-    #
-    # # Write statistics to a file
-    # with open('/mnt/kesha/llm-syntax-data/raw-sentences/per-section/statistics.txt', 'w') as file:
-    #     file.write('\toriginal\t')
-    #     for model in model_names:
-    #         file.write(model + '\t')
-    #     file.write('\n')
-    #
-    #     # Writing out the statistics for each section
-    #     for key in orig_sorted_sentence_counts:
-    #         file.write(f"{key}\t{orig_sorted_sentence_counts[key]}")
-    #         for model in model_names:
-    #             file.write(f"\t{gen_sorted_sentence_counts[model].get(key, 0)}")
-    #         file.write("\n")
+    plt.savefig(os.path.join(output_dir, 'num_sentences_per_author.png'))
+    plt.close()
 
+
+def save_outputs(sentence2authors, single_authored, output_dir):
+    """Write sentence2author.json and more_than_100.json to output_dir."""
+    with open(os.path.join(output_dir, 'sentences2author.json'), 'w', encoding='utf-8') as f:
+        json.dump(sentence2authors, f, ensure_ascii=False)
+    more_than_100 = [a for a, s in single_authored.items() if len(s) > 100]
+    with open(os.path.join(output_dir, 'more_than_100.json'), 'w', encoding='utf-8') as f:
+        json.dump(more_than_100, f, ensure_ascii=False)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('nyt_json', help='Path to raw NYT articles JSON.')
+    ap.add_argument('--output-dir', default=_DEFAULT_OUTPUT_DIR,
+                    help=f'Directory to write all outputs (default: {_DEFAULT_OUTPUT_DIR}).')
+    args = ap.parse_args()
+
+    authors_dir = os.path.join(args.output_dir, 'by-one-author')
+    os.makedirs(authors_dir, exist_ok=True)
+
+    stz = stanza.Pipeline('en', processors='tokenize')
+    articles = load_json_data(args.nyt_json)
+
+    per_author, sentence2authors = tokenize_articles(articles, stz)
+    single_authored = filter_single_authored(per_author)
+    write_author_files(single_authored, authors_dir)
+    report_stats(single_authored)
+    save_histogram(single_authored, args.output_dir)
+    save_outputs(sentence2authors, single_authored, args.output_dir)
     print('done.')
+
+
+if __name__ == '__main__':
+    main()

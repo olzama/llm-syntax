@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-extract_examples_JSD.py
+extract_ex_JSD.py — collect example sentences for JSD top-contributing construction types.
 
-Collect example sentences for JSD top-contributing lexical types, per model,
-from DELPH-IN itsdb profiles.
+Given a JSD top-contributors JSON file (produced by a JSD analysis), finds example
+sentences and constituent strings for each construction type listed, per model,
+from DELPH-IN TSDB profiles.  The input JSON is enriched with an "examples" field
+for each type and written to output_dir.
 
 Supports multi-chunk datasets (e.g., WSJ/Wikipedia) by treating a model's data
 directory as either:
@@ -12,24 +14,59 @@ directory as either:
 - a container of many TSDB profiles (any subdirs containing 'item'/'relations');
   examples are accumulated across chunks until per-type caps are reached.
 
-Adds progress reporting:
-- Per-model start/heartbeat every N processed items (--progress-every)
-- Early-stop message when caps are reached
-- Per-model summary of how many types got at least one example
+Usage (run from repo root):
+    python scripts/extract_ex_JSD.py <jsd_file> [<jsd_file> ...] \\
+        --data-dir <parsed_dir> --output-dir <out_dir> --erg-dir <erg_dir>
+
+Example:
+    python scripts/extract_ex_JSD.py analysis/jsd/constr-llm2025-vs-llm-2023.json \\
+        --data-dir parsed/ --output-dir analysis/jsd/ --erg-dir /path/to/erg
+
+Options:
+    --data-dir DIR        Directory with one subdir per model (each a profile or folder
+                          of profiles).  Required.
+    --output-dir DIR      Where to write enriched JSON(s).  Required.
+    --erg-dir DIR         ERG grammar directory.  Required.
+    --mode constructions|lextypes
+                          What to collect examples for:
+                            constructions — non-terminal, non-lexrule nodes (default)
+                            lextypes      — preterminal lexical types
+    --max-per-model INT   Max examples per type per model (default: 10).
+    --progress-every INT  Heartbeat every N processed items (default: 200).
+    --quiet               Suppress progress output.
+    --restrict-sides A|B|both
+                          Restrict to models on the given JSD side (default: both).
 """
 
 import argparse
 import json
 import os
-from collections import defaultdict as dd
 
 from delphin import itsdb, derivation
 from delphin.tokens import YYTokenLattice
 
-from erg import get_n_supertypes, populate_type_defs, read_lexicon
+from erg import get_n_supertypes, populate_type_defs
 
 
 def parse_group_models(jsd_payload):
+    """Return the set of all model names referenced in a JSD payload.
+
+    Reads from the top-level 'groups' field (written by diversity.py).
+    Falls back to scanning per-type 'models' dicts for legacy files that
+    use GRP{model1, model2, ...} tags.
+    """
+    # New format: top-level "groups": {"A": {"label": ..., "models": [...]}, "B": {...}}
+    groups = jsd_payload.get('groups')
+    if groups and isinstance(groups, dict):
+        models = set()
+        for side_info in groups.values():
+            for name in side_info.get('models', []):
+                if name:
+                    models.add(name)
+        if models:
+            return models
+
+    # Legacy fallback: per-type "models": {"A": "GRP{...}", "B": "GRP{...}"}
     models = set()
     for t in jsd_payload.get('types', []):
         md = t.get('models', {})
@@ -46,6 +83,10 @@ def parse_group_models(jsd_payload):
 
 
 def find_constituent(lattice, start, end, ex_text):
+    """Return the substring of ex_text spanned by token positions [start, end).
+
+    Returns an empty string if the span cannot be resolved (e.g. malformed lattice).
+    """
     try:
         left = lattice.tokens[start].lnk.data[0]
         right = lattice.tokens[end-1].lnk.data[1]
@@ -247,10 +288,15 @@ def collect_for_types_in_suite(suite_dir, lex, types_of_interest, cap_per_type, 
     return ex_by_type
 
 
-def collect_for_types_in_model(model_dir, lex, types_set, cap_per_type, progress_every=200, model_name=None, quiet=False):
-    """
-    Collect examples across one or many TSDB profiles under model_dir.
-    Accumulates examples per type across chunks until caps are reached.
+def collect_for_types_in_model(model_dir, lex, types_set, cap_per_type,
+                               mode='constructions',
+                               progress_every=200, model_name=None, quiet=False):
+    """Collect examples across one or many TSDB profiles under model_dir.
+
+    Accumulates examples per type across profile chunks until per-type caps are reached.
+
+    mode: 'constructions' — collect non-preterminal, non-lexrule nodes
+          'lextypes'      — collect preterminal lexical types (requires lex for supertype resolution)
     """
     profiles = list_tsdb_profiles(model_dir)
     if not profiles:
@@ -271,16 +317,17 @@ def collect_for_types_in_model(model_dir, lex, types_set, cap_per_type, progress
             if not quiet:
                 print(f"[scan] {model_name or model_dir}: caps reached across chunks; stopping.", flush=True)
             break
-        # chunk = collect_for_types_in_suite(
-        #     prof, lex, types_set, cap_per_type,
-        #     progress_every=progress_every, model_name=f"{model_name or model_dir}::{os.path.basename(prof)}",
-        #     quiet=quiet
-        # )
-        chunk = collect_for_constructions_in_suite(
-            prof, types_set, cap_per_type,
-            progress_every=progress_every, model_name=f"{model_name or model_dir}::{os.path.basename(prof)}",
-            quiet=quiet
-        )
+        label = f"{model_name or model_dir}::{os.path.basename(prof)}"
+        if mode == 'lextypes':
+            chunk = collect_for_types_in_suite(
+                prof, lex, types_set, cap_per_type,
+                progress_every=progress_every, model_name=label, quiet=quiet
+            )
+        else:
+            chunk = collect_for_constructions_in_suite(
+                prof, types_set, cap_per_type,
+                progress_every=progress_every, model_name=label, quiet=quiet
+            )
         for t, lst in chunk.items():
             if not lst:
                 continue
@@ -293,11 +340,14 @@ def collect_for_types_in_model(model_dir, lex, types_set, cap_per_type, progress
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Collect examples for JSD top-contributing lexical types, per model.")
+    ap = argparse.ArgumentParser(description="Collect examples for JSD top-contributing types, per model.")
     ap.add_argument("jsd_files", nargs="+", help="Input JSD top-contributors JSON file(s).")
     ap.add_argument("--data-dir", required=True, help="Directory with itsdb suites; one subdir per model (each may be a profile or a folder of profiles).")
     ap.add_argument("--output-dir", required=True, help="Where to write the enriched JSON(s).")
-    ap.add_argument("--erg-dir", required=True, help="Grammar directory.")
+    ap.add_argument("--erg-dir", required=True, help="ERG grammar directory.")
+    ap.add_argument("--mode", choices=["constructions", "lextypes"], default="constructions",
+                    help="What to collect examples for: 'constructions' (non-terminal, non-lexrule nodes) "
+                         "or 'lextypes' (preterminal lexical types). Default: constructions.")
     ap.add_argument("--max-per-model", type=int, default=10, help="Max examples per type per model (default 10).")
     ap.add_argument("--progress-every", type=int, default=200, help="Heartbeat every N processed items (default 200).")
     ap.add_argument("--quiet", action="store_true", help="Suppress progress output.")
@@ -347,6 +397,7 @@ def main():
             print(f"[scan] Processing model: {model}", flush=True)
             ex_by_type = collect_for_types_in_model(
                 model_dir, lex, types_set, args.max_per_model,
+                mode=args.mode,
                 progress_every=args.progress_every, model_name=model, quiet=args.quiet
             )
             if not args.quiet:
@@ -366,8 +417,7 @@ def main():
         enriched["types"] = enriched_types
 
         stem = os.path.splitext(os.path.basename(jsd_path))[0]
-        #out_path = os.path.join(args.output_dir, f"{stem}-examples.json")
-        out_path = os.path.join(args.output_dir, "constr-llm2025-vs-llm-2023.json")
+        out_path = os.path.join(args.output_dir, f"{stem}-examples.json")
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(enriched, f, ensure_ascii=False, indent=2)
         if not args.quiet:

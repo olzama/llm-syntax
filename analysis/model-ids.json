@@ -1,0 +1,19 @@
+{
+  "NYT-2023-human": 1,
+  "NYT-2025-human": 2,
+  "WSJ-1987-human": 3,
+  "Wikipedia-2008-human": 4,
+  "Falcon7B-2023-llm": 5,
+  "Llama7B-2023-llm": 6,
+  "Llama13B-2023-llm": 7,
+  "Llama30B-2023-llm": 8,
+  "Llama65B-2023-llm": 9,
+  "Mistral7B-2023-llm": 10,
+  "Llama70B-2025-llm": 11,
+  "Mistral7B_i-2025-llm": 12,
+  "GPT4o-2025-llm": 13,
+  "Qwen14B-2025-llm": 14,
+  "Qwen32B-2025-llm": 15,
+  "Qwen72B-2025-llm": 16,
+  "TinyLlama-2025-llm": 17
+}
