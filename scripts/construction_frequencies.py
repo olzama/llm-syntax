@@ -1,23 +1,37 @@
-import sys, os
-import re
+"""
+construction_frequencies.py — frequency-analysis utilities shared across the
+analysis pipeline, plus a __main__ entry point that computes pairwise
+cosine-similarity matrices from a frequency JSON file.
+
+Functions imported by other scripts:
+  - is_human          — model naming convention ("-human" suffix)
+  - build_llm_vs_human — aggregate all LLM models into one 'llm' entry
+  - combine_types     — merge rule-type categories into a flat dataset dict
+
+Usage (run from repo root):
+    python scripts/construction_frequencies.py <frequencies_json> [<frequencies_json> ...]
+        --output-dir <dir>
+
+Loads the frequency JSON(s), normalizes by construction count, and writes
+three cosine-similarity matrices to <output_dir>:
+  syntax-only.json   — constructions
+  lexrule-only.json  — lexical rules
+  lextype-only.json  — lexical types
+"""
+
+import argparse
 import json
-import numpy as np
+import os
 from collections import defaultdict
-from erg import get_n_supertypes, populate_type_defs
-from count_constructions import collect_types_multidir
+
+import numpy as np
+
 from util import compute_cosine, print_cosine_similarities, serialize_dict, normalize_by_constr_count
-from erg import types2defs, read_lexicon, lexical_types
 
-ALL_HUMAN_AUTHORED = ["original", "wikipedia", "wsj"]
-HUMAN_NYT = ["original"]
-LLM_GENERATED = ['falcon_07', 'llama_07', 'llama_13', 'llama_30', 'llama_65', 'mistral_07']
-LLM_NO_FALCON = ['llama_07', 'llama_13', 'llama_30', 'llama_65', 'mistral_07']
 
-dataset_sizes = {
-    'original': 26102, 'falcon_07': 27769, 'llama_07': 37825, 'llama_13': 37800,
-    'llama_30': 37568, 'llama_65': 38107, 'mistral_07': 35086,
-    'wikipedia': 10726, 'wsj': 43043, 'new-original': 29339,
-}
+def is_human(model: str) -> bool:
+    """Return True if the model name follows the '-human' naming convention."""
+    return '-human' in model.lower()
 
 
 def exclusive_members(freq, my_dataset, datasets_to_compare):
@@ -42,82 +56,6 @@ def exclusive_members(freq, my_dataset, datasets_to_compare):
     only_in_mine  = {rt: mine_set[rt]  - other_set[rt] for rt in mine_set}
     only_in_other = {rt: other_set[rt] - mine_set[rt]  for rt in other_set}
     return only_in_mine, only_in_other
-
-
-def read_freq(data_dir, lex, depth):
-    """Read per-model rule frequencies from .txt files under data_dir.
-
-    Each subdirectory of data_dir is a model name; inside it, files named
-    constr.txt, lexrule.txt, lextype.txt list (count, rule) pairs one per line.
-    Lextype rules are resolved to a supertype at hierarchy depth if depth > 0,
-    and rare lextypes (normalized count < 1% of dataset size) are discarded.
-    Returns {rule_type: {model: {rule: count}}} with zeros filled in for missing rules.
-    """
-    freq_by_model = {'lexrule': {}, 'constr': {}, 'lextype': {}}
-    all_rules = {'lexrule': set(), 'constr': set(), 'lextype': set()}
-
-    for model in os.listdir(data_dir):
-        subdir_path = os.path.join(data_dir, model)
-        if not os.path.isdir(subdir_path):
-            continue
-        for f in os.listdir(subdir_path):
-            if not f.endswith('.txt'):
-                continue
-            rule_type = f[:-len('.txt')]
-            f_path = os.path.join(subdir_path, f)
-            with open(f_path, 'r') as fh:
-                lines = fh.readlines()
-            freq_by_model[rule_type].setdefault(model, {})
-            for ln in lines:
-                parts = ln.strip().split(' ')
-                freq = int(parts[0].strip())
-                rule = parts[1].strip().strip('/\\"')
-                if 'u_unknown' in rule:
-                    rule = re.sub(r"([A-Z]+_u_unknown(_rel)?)(<\d+:\d+>)", r"\1\2", rule)
-                model_rules = freq_by_model[rule_type][model]
-                if rule_type == 'lextype':
-                    if freq / dataset_sizes[model] < 0.01:
-                        continue
-                    if depth > 0:
-                        supertypes = get_n_supertypes(lex, rule, depth)
-                        if supertypes:
-                            for st in supertypes[depth - 1]:
-                                model_rules[st] = model_rules.get(st, 0) + freq
-                    else:
-                        model_rules[rule] = model_rules.get(rule, 0) + freq
-                else:
-                    model_rules[rule] = model_rules.get(rule, 0) + freq
-
-    for rule_type, models in freq_by_model.items():
-        for rules in models.values():
-            all_rules[rule_type].update(rules)
-    for rule_type in all_rules:
-        for model in freq_by_model[rule_type]:
-            for rule in all_rules[rule_type]:
-                if rule not in freq_by_model[rule_type][model]:
-                    freq_by_model[rule_type][model][rule] = 0
-    return freq_by_model
-
-
-def normalize_by_num_sen(freq_by_model):
-    """Return (normalized_freq, reverse_freq) with counts divided by dataset size.
-
-    normalized_freq: {rule_type: {model: {rule: normalized_count}}} sorted descending.
-    reverse_freq:    same data sorted ascending (for bottom-N queries).
-    The input freq_by_model is not modified.
-    """
-    normalized = {'lexrule': {}, 'constr': {}, 'lextype': {}}
-    reverse_freq = {'lexrule': {}, 'constr': {}, 'lextype': {}}
-    for key in ['constr', 'lexrule', 'lextype']:
-        for model, rules in freq_by_model[key].items():
-            normed = {rule: count / dataset_sizes[model] for rule, count in rules.items()}
-            normalized[key][model] = dict(sorted(
-                normed.items(), key=lambda item: (item[1], item[0]), reverse=True
-            ))
-            reverse_freq[key][model] = dict(sorted(
-                normed.items(), key=lambda item: (item[1], item[0]), reverse=False
-            ))
-    return normalized, reverse_freq
 
 
 def separate_dataset(all_datasets, dataset_name):
@@ -159,17 +97,19 @@ def add_new_dataset(frequencies, new_dataset, dataset_name, model_name='original
 
 
 def build_llm_vs_human(frequencies):
-    """Aggregate all LLM models into a single 'llm' entry alongside the human baselines.
+    """Aggregate all LLM models into a single 'llm' entry alongside the human models.
 
-    Combines raw counts from all LLM_GENERATED models using combine_datasets, then
-    returns a frequencies dict containing only 'llm' and ALL_HUMAN_AUTHORED models.
-    Human models absent from frequencies are silently omitted.
+    Detects LLM and human models by the '-human' naming convention.
+    Returns a frequencies dict containing only 'llm' and the human models.
     """
-    llm_combined = combine_datasets(frequencies, LLM_GENERATED, 'llm')
+    all_models = {m for rt in frequencies.values() for m in rt}
+    llm_models   = [m for m in all_models if not is_human(m)]
+    human_models = [m for m in all_models if is_human(m)]
+    llm_combined = combine_datasets(frequencies, llm_models, 'llm')
     merged = {rt: {} for rt in frequencies}
     for rt in frequencies:
         merged[rt]['llm'] = llm_combined[rt]['llm']
-        for human in ALL_HUMAN_AUTHORED:
+        for human in human_models:
             if human in frequencies[rt]:
                 merged[rt][human] = frequencies[rt][human]
     return merged
@@ -374,38 +314,42 @@ def compare_lexentries(data):
     """Find lexical entries present only in LLM output vs. only in human-authored text.
 
     data: {model_name: {lexentry: count}}
+    Detects LLM and human models by the '-human' naming convention.
     Returns (only_in_llm_d, only_in_human_d) where each is a dict keyed by model name
     (plus 'all llms' / 'not in any llm' aggregate keys).
     """
+    llm_models   = [m for m in data if not is_human(m)]
+    human_models = [m for m in data if is_human(m)]
+
     only_in_llm_d   = {'all llms': {}}
     only_in_human_d = {'not in any llm': {}}
     llm_lexentries  = {}
     all_llms_lexentries = set()
     human_lexentries    = set()
-    for model in data:
-        if model in LLM_GENERATED:
-            llm_lexentries[model] = set()
-            only_in_human_d[model] = {}
-            only_in_llm_d[model]   = {}
-            for le in data[model]:
-                all_llms_lexentries.add(le)
-                llm_lexentries[model].add(le)
-        elif model in HUMAN_NYT:
-            for le in data[model]:
-                human_lexentries.add(le)
-    for model in data:
-        if model in LLM_GENERATED:
-            for le in data[model]:
-                if le not in human_lexentries:
-                    only_in_llm_d[model][le] = data[model][le]
-                    only_in_llm_d['all llms'][le] = only_in_llm_d['all llms'].get(le, 0) + data[model][le]
-        elif model in HUMAN_NYT:
-            for le in data[model]:
-                if le not in all_llms_lexentries:
-                    only_in_human_d['not in any llm'][le] = data[model][le]
-                for llm in llm_lexentries:
-                    if le not in llm_lexentries[llm]:
-                        only_in_human_d[llm][le] = data[model][le]
+
+    for model in llm_models:
+        llm_lexentries[model] = set()
+        only_in_human_d[model] = {}
+        only_in_llm_d[model]   = {}
+        for le in data[model]:
+            all_llms_lexentries.add(le)
+            llm_lexentries[model].add(le)
+    for model in human_models:
+        for le in data[model]:
+            human_lexentries.add(le)
+
+    for model in llm_models:
+        for le in data[model]:
+            if le not in human_lexentries:
+                only_in_llm_d[model][le] = data[model][le]
+                only_in_llm_d['all llms'][le] = only_in_llm_d['all llms'].get(le, 0) + data[model][le]
+    for model in human_models:
+        for le in data[model]:
+            if le not in all_llms_lexentries:
+                only_in_human_d['not in any llm'][le] = data[model][le]
+            for llm in llm_lexentries:
+                if le not in llm_lexentries[llm]:
+                    only_in_human_d[llm][le] = data[model][le]
     return only_in_llm_d, only_in_human_d
 
 
@@ -463,21 +407,28 @@ def analyze_lextypes_by_freq(norm_freq, lextypes, dataset):
 
 
 if __name__ == '__main__':
-    data_dir = sys.argv[1]
-    erg_dir = sys.argv[2]
-    with open('analysis/frequencies-json/frequencies-models-wiki-wsj.json', 'r') as f:
-        all_data = json.load(f)
-    with open('analysis/frequencies-json/02-05-2025-original-frequencies.json', 'r') as f:
-        new_original_data = json.load(f)
-    add_new_dataset(all_data, new_original_data, 'new-original')
-    normalized_frequencies = normalize_by_constr_count(all_data)
-    all_data        = combine_types(normalized_frequencies, ['constr', 'lexrule', 'lextype'])
-    only_syntactic  = combine_types(normalized_frequencies, ['constr'])
-    only_lexical    = combine_types(normalized_frequencies, ['lexrule'])
-    only_vocab      = combine_types(normalized_frequencies, ['lextype'])
-    syntactic_cosines = compute_cosine(only_syntactic)
-    lexical_cosines   = compute_cosine(only_lexical)
-    vocab_cosines     = compute_cosine(only_vocab)
-    serialize_dict(vocab_cosines,     'analysis/cosine-pairs/models/norm-by-constr-count/2025/lextype-only.json')
-    serialize_dict(syntactic_cosines, 'analysis/cosine-pairs/models/norm-by-constr-count/2025/syntax-only.json')
-    serialize_dict(lexical_cosines,   'analysis/cosine-pairs/models/norm-by-constr-count/2025/lexrule-only.json')
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('frequencies_json', nargs='+',
+                    help='One or more frequency JSON files ({phenomenon: {model: {type: count}}}).')
+    ap.add_argument('--output-dir', default=os.path.join('analysis', 'cosine-pairs'),
+                    help='Directory to write cosine-similarity JSON files (default: analysis/cosine-pairs).')
+    args = ap.parse_args()
+
+    all_data = {}
+    for path in args.frequencies_json:
+        with open(path, 'r', encoding='utf-8') as f:
+            obj = json.load(f)
+        for phenom, model_counts in obj.items():
+            all_data.setdefault(phenom, {}).update(model_counts)
+
+    normalized = normalize_by_constr_count(all_data)
+    only_syntactic = combine_types(normalized, ['constr'])
+    only_lexical   = combine_types(normalized, ['lexrule'])
+    only_vocab     = combine_types(normalized, ['lextype'])
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    serialize_dict(compute_cosine(only_syntactic), os.path.join(args.output_dir, 'syntax-only.json'))
+    serialize_dict(compute_cosine(only_lexical),   os.path.join(args.output_dir, 'lexrule-only.json'))
+    serialize_dict(compute_cosine(only_vocab),     os.path.join(args.output_dir, 'lextype-only.json'))
+    print(f"Cosine similarity matrices written to {args.output_dir}/")

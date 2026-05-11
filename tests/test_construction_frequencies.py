@@ -1,6 +1,7 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
+import json
 import pytest
 from construction_frequencies import (
     exclusive_members,
@@ -16,12 +17,27 @@ from construction_frequencies import (
     compare_human_vs_machine,
     find_absolute_diffs_lextype,
     compare_lexentries,
-    normalize_by_num_sen,
     build_llm_vs_human,
-    dataset_sizes,
-    LLM_GENERATED,
-    ALL_HUMAN_AUTHORED,
+    is_human,
 )
+
+_REPO_ROOT = os.path.join(os.path.dirname(__file__), '..')
+_FREQ_2023  = os.path.join(_REPO_ROOT, 'analysis', 'frequencies-json', 'frequencies-2023.json')
+_REF_SYNTAX = os.path.join(_REPO_ROOT, 'analysis', 'cosine-pairs', 'models',
+                            'norm-by-constr-count', 'syntax-only.json')
+
+# Old name → new name mapping for the regression comparison
+_NAME_MAP = {
+    'Falcon7B-2023-llm':    'falcon_07',
+    'Llama7B-2023-llm':     'llama_07',
+    'Llama13B-2023-llm':    'llama_13',
+    'Llama30B-2023-llm':    'llama_30',
+    'Llama65B-2023-llm':    'llama_65',
+    'Mistral7B-2023-llm':   'mistral_07',
+    'NYT-2023-human':       'original',
+    'WSJ-1987-human':       'wsj',
+    'Wikipedia-2008-human': 'wikipedia',
+}
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +57,28 @@ def _minimal_freq():
         'lextype': {'human_a': {'n_-_c_le': 7, 'v_e_le': 2},
                     'llm_b':   {'n_-_c_le': 6}},
     }
+
+
+# ---------------------------------------------------------------------------
+# is_human
+# ---------------------------------------------------------------------------
+
+def test_is_human_new_convention():
+    """Models with '-human' suffix are recognised as human."""
+    assert is_human('NYT-2023-human')
+    assert is_human('WSJ-1987-human')
+    assert is_human('Wikipedia-2008-human')
+
+
+def test_is_human_llm_returns_false():
+    """Models with '-llm' suffix are not human."""
+    assert not is_human('Falcon7B-2023-llm')
+    assert not is_human('GPT4o-2025-llm')
+
+
+def test_is_human_case_insensitive():
+    """The check is case-insensitive."""
+    assert is_human('NYT-2023-HUMAN')
 
 
 # ---------------------------------------------------------------------------
@@ -391,8 +429,6 @@ def test_compare_with_other_datasets_difference_larger():
         ('llm_b', 'human_c'): 0.99,   # between non-selected
     }
     result = compare_with_other_datasets('human_a', cosines)
-    diff_selected = 1 - 0.7   # 0.30
-    diff_others = 1 - 0.99    # 0.01
     print(f"\n  Input:    human_a vs llm_b cosine=0.7; llm_b vs human_c cosine=0.99")
     print(f"  Expected: result['llm_b'][0] = True (human_a more different from llm_b than others are)")
     print(f"  Actual:   {result.get('llm_b')}")
@@ -422,8 +458,7 @@ def test_compare_with_other_datasets_difference_not_larger():
 # ---------------------------------------------------------------------------
 
 def test_compare_human_vs_machine_groups_correctly():
-    """compare_human_vs_machine separates similarities into human vs machine buckets.
-    human_a vs human_b should be in similarities_with_human; human_a vs llm_c in with_machine."""
+    """compare_human_vs_machine separates similarities into human vs machine buckets."""
     cosines = {
         ('human_a', 'human_b'): 0.95,
         ('human_a', 'llm_c'):   0.75,
@@ -445,7 +480,7 @@ def test_compare_human_vs_machine_groups_correctly():
 
 
 def test_compare_human_vs_machine_avg_machine_similarity():
-    """avg_machine_similarity is computed from pairwise machine–machine similarities."""
+    """avg_machine_similarity is computed from pairwise machine-machine similarities."""
     cosines = {
         ('human_a', 'llm_c'):   0.80,
         ('llm_c', 'llm_d'):     0.90,
@@ -521,35 +556,25 @@ def test_find_absolute_diffs_lextype_only_in_one_model():
 # ---------------------------------------------------------------------------
 
 def test_compare_lexentries_only_in_llm():
-    """Lexentries present in an LLM but not in human (HUMAN_NYT='original') go into only_in_llm."""
-    from construction_frequencies import LLM_GENERATED, HUMAN_NYT
-    # Build minimal data with one human model and one LLM
-    # Use actual names from the module constants
-    human_model = HUMAN_NYT[0]       # 'original'
-    llm_model = LLM_GENERATED[0]     # 'falcon_07'
-
+    """Lexentries present in an LLM but not in any human go into only_in_llm."""
     data = {
-        human_model: {'apple': 5, 'tree': 3},
-        llm_model:   {'apple': 4, 'robot': 7},   # 'robot' not in human
+        'NYT-2023-human':  {'apple': 5, 'tree': 3},
+        'Falcon7B-2023-llm': {'apple': 4, 'robot': 7},  # 'robot' not in human
     }
     only_in_llm, only_in_human = compare_lexentries(data)
-    print(f"\n  Input:    human has {{apple, tree}}, {llm_model} has {{apple, robot}}")
-    print(f"  Expected: 'robot' in only_in_llm['{llm_model}']")
-    print(f"  Actual:   {only_in_llm.get(llm_model)}")
-    assert 'robot' in only_in_llm[llm_model], (
-        f"Expected 'robot' (exclusive to LLM) in only_in_llm, got: {only_in_llm[llm_model]}"
+    print(f"\n  Input:    human has {{apple, tree}}, LLM has {{apple, robot}}")
+    print(f"  Expected: 'robot' in only_in_llm['Falcon7B-2023-llm']")
+    print(f"  Actual:   {only_in_llm.get('Falcon7B-2023-llm')}")
+    assert 'robot' in only_in_llm['Falcon7B-2023-llm'], (
+        f"Expected 'robot' (exclusive to LLM) in only_in_llm, got: {only_in_llm['Falcon7B-2023-llm']}"
     )
 
 
 def test_compare_lexentries_only_in_human():
-    """Lexentries present in human (HUMAN_NYT='original') but not in any LLM go into only_in_human."""
-    from construction_frequencies import LLM_GENERATED, HUMAN_NYT
-    human_model = HUMAN_NYT[0]
-    llm_model = LLM_GENERATED[0]
-
+    """Lexentries present in human but not in any LLM go into only_in_human."""
     data = {
-        human_model: {'apple': 5, 'nuance': 1},   # 'nuance' not in LLM
-        llm_model:   {'apple': 4},
+        'NYT-2023-human':    {'apple': 5, 'nuance': 1},  # 'nuance' not in LLM
+        'Falcon7B-2023-llm': {'apple': 4},
     }
     only_in_llm, only_in_human = compare_lexentries(data)
     print(f"\n  Input:    human has {{apple, nuance}}, LLM has {{apple}}")
@@ -562,20 +587,16 @@ def test_compare_lexentries_only_in_human():
 
 def test_compare_lexentries_shared_entry_absent_from_exclusive():
     """Lexentries present in both human and LLM should not appear in either exclusive set."""
-    from construction_frequencies import LLM_GENERATED, HUMAN_NYT
-    human_model = HUMAN_NYT[0]
-    llm_model = LLM_GENERATED[0]
-
     data = {
-        human_model: {'apple': 5},
-        llm_model:   {'apple': 4},
+        'NYT-2023-human':    {'apple': 5},
+        'Falcon7B-2023-llm': {'apple': 4},
     }
     only_in_llm, only_in_human = compare_lexentries(data)
     print(f"\n  Input:    'apple' present in both human and LLM")
     print(f"  Expected: 'apple' absent from both exclusive sets")
-    print(f"  only_in_llm[llm_model]:          {only_in_llm.get(llm_model)}")
-    print(f"  only_in_human['not in any llm']:  {only_in_human.get('not in any llm')}")
-    assert 'apple' not in only_in_llm.get(llm_model, {}), (
+    print(f"  only_in_llm['Falcon7B-2023-llm']:  {only_in_llm.get('Falcon7B-2023-llm')}")
+    print(f"  only_in_human['not in any llm']:    {only_in_human.get('not in any llm')}")
+    assert 'apple' not in only_in_llm.get('Falcon7B-2023-llm', {}), (
         f"Shared entry 'apple' must not appear in only_in_llm"
     )
     assert 'apple' not in only_in_human.get('not in any llm', {}), (
@@ -584,89 +605,21 @@ def test_compare_lexentries_shared_entry_absent_from_exclusive():
 
 
 # ---------------------------------------------------------------------------
-# normalize_by_num_sen
-#
-# Uses 'original' (26102 sentences) and 'falcon_07' (27769 sentences) from
-# dataset_sizes so the function can look up the denominator.
-# ---------------------------------------------------------------------------
-
-def _make_freq_for_norm():
-    return {
-        'constr':  {'original': {'sb-hd_mc_c': 26102, 'hd-pct_c': 13051},
-                    'falcon_07': {'sb-hd_mc_c': 27769, 'hd-pct_c': 0}},
-        'lexrule': {'original': {'n_sg_ilr': 2610},
-                    'falcon_07': {'n_sg_ilr': 5554}},
-        'lextype': {'original': {'n_-_c_le': 26102},
-                    'falcon_07': {'n_-_c_le': 27769}},
-    }
-
-
-def test_normalize_by_num_sen_does_not_mutate_input():
-    """normalize_by_num_sen must not modify the input dict."""
-    freq = _make_freq_for_norm()
-    original_count = freq['constr']['original']['sb-hd_mc_c']
-    normalize_by_num_sen(freq)
-    assert freq['constr']['original']['sb-hd_mc_c'] == original_count, (
-        "Input freq_by_model was mutated"
-    )
-
-
-def test_normalize_by_num_sen_returns_two_dicts():
-    """normalize_by_num_sen returns a (normalized, reverse) tuple."""
-    result = normalize_by_num_sen(_make_freq_for_norm())
-    assert isinstance(result, tuple) and len(result) == 2
-
-
-def test_normalize_by_num_sen_divides_by_dataset_size():
-    """Each count is divided by the model's entry in dataset_sizes."""
-    normalized, _ = normalize_by_num_sen(_make_freq_for_norm())
-    expected = 26102 / dataset_sizes['original']
-    actual = normalized['constr']['original']['sb-hd_mc_c']
-    print(f"\n  Input:    sb-hd_mc_c=26102 for 'original' ({dataset_sizes['original']} sentences)")
-    print(f"  Expected: {expected:.6f}")
-    print(f"  Actual:   {actual:.6f}")
-    assert abs(actual - expected) < 1e-9
-
-
-def test_normalize_by_num_sen_normalized_sorted_descending():
-    """The normalized dict is sorted in descending order of frequency."""
-    normalized, _ = normalize_by_num_sen(_make_freq_for_norm())
-    values = list(normalized['constr']['original'].values())
-    assert values == sorted(values, reverse=True), (
-        f"Normalized counts not sorted descending: {values}"
-    )
-
-
-def test_normalize_by_num_sen_reverse_sorted_ascending():
-    """The reverse dict is sorted in ascending order of frequency."""
-    _, reverse = normalize_by_num_sen(_make_freq_for_norm())
-    values = list(reverse['constr']['original'].values())
-    assert values == sorted(values), (
-        f"Reverse counts not sorted ascending: {values}"
-    )
-
-
-# ---------------------------------------------------------------------------
 # build_llm_vs_human
-#
-# Uses actual LLM_GENERATED and ALL_HUMAN_AUTHORED constants so the function
-# can find the right keys.
 # ---------------------------------------------------------------------------
 
 def _make_freq_for_combined():
-    """Minimal frequencies dict with two LLMs and two human models."""
-    llm1, llm2 = LLM_GENERATED[0], LLM_GENERATED[1]
-    human = ALL_HUMAN_AUTHORED[0]
+    """Minimal frequencies dict with two LLMs and one human model."""
     return {
-        'constr':  {llm1:  {'sb-hd_mc_c': 10, 'hd-pct_c': 5},
-                    llm2:  {'sb-hd_mc_c':  8, 'hd-pct_c': 2},
-                    human: {'sb-hd_mc_c': 20, 'hd-pct_c': 9}},
-        'lexrule': {llm1:  {'n_sg_ilr': 4},
-                    llm2:  {'n_sg_ilr': 3},
-                    human: {'n_sg_ilr': 7}},
-        'lextype': {llm1:  {'n_-_c_le': 6},
-                    llm2:  {'n_-_c_le': 5},
-                    human: {'n_-_c_le': 11}},
+        'constr':  {'Falcon7B-2023-llm': {'sb-hd_mc_c': 10, 'hd-pct_c': 5},
+                    'Llama7B-2023-llm':  {'sb-hd_mc_c':  8, 'hd-pct_c': 2},
+                    'NYT-2023-human':    {'sb-hd_mc_c': 20, 'hd-pct_c': 9}},
+        'lexrule': {'Falcon7B-2023-llm': {'n_sg_ilr': 4},
+                    'Llama7B-2023-llm':  {'n_sg_ilr': 3},
+                    'NYT-2023-human':    {'n_sg_ilr': 7}},
+        'lextype': {'Falcon7B-2023-llm': {'n_-_c_le': 6},
+                    'Llama7B-2023-llm':  {'n_-_c_le': 5},
+                    'NYT-2023-human':    {'n_-_c_le': 11}},
     }
 
 
@@ -678,13 +631,13 @@ def test_build_llm_vs_human_contains_llm_key():
 
 
 def test_build_llm_vs_human_sums_llm_counts():
-    """Counts for the 'llm' entry are the sum across all LLM_GENERATED models."""
+    """Counts for the 'llm' entry are the sum across all LLM models."""
     freq = _make_freq_for_combined()
     result = build_llm_vs_human(freq)
-    llm1, llm2 = LLM_GENERATED[0], LLM_GENERATED[1]
-    expected = freq['constr'][llm1]['sb-hd_mc_c'] + freq['constr'][llm2]['sb-hd_mc_c']
+    expected = (freq['constr']['Falcon7B-2023-llm']['sb-hd_mc_c']
+                + freq['constr']['Llama7B-2023-llm']['sb-hd_mc_c'])
     actual = result['constr']['llm']['sb-hd_mc_c']
-    print(f"\n  Input:    {llm1}=10, {llm2}=8")
+    print(f"\n  Input:    Falcon=10, Llama=8")
     print(f"  Expected: llm['sb-hd_mc_c'] = {expected}")
     print(f"  Actual:   {actual}")
     assert actual == expected
@@ -693,21 +646,62 @@ def test_build_llm_vs_human_sums_llm_counts():
 def test_build_llm_vs_human_contains_human_models():
     """Human baseline models are preserved in the result."""
     result = build_llm_vs_human(_make_freq_for_combined())
-    human = ALL_HUMAN_AUTHORED[0]
-    assert human in result['constr'], f"Human model '{human}' missing from result"
+    assert 'NYT-2023-human' in result['constr'], "Human model 'NYT-2023-human' missing from result"
 
 
 def test_build_llm_vs_human_excludes_individual_llms():
     """Individual LLM model keys are not present — only the aggregate 'llm'."""
     result = build_llm_vs_human(_make_freq_for_combined())
-    for llm in LLM_GENERATED:
+    for llm in ('Falcon7B-2023-llm', 'Llama7B-2023-llm'):
         assert llm not in result['constr'], f"Individual LLM '{llm}' should not appear in result"
 
 
 def test_build_llm_vs_human_does_not_mutate_input():
     """Input frequencies dict is not modified."""
     freq = _make_freq_for_combined()
-    llm1 = LLM_GENERATED[0]
-    original_count = freq['constr'][llm1]['sb-hd_mc_c']
+    original_count = freq['constr']['Falcon7B-2023-llm']['sb-hd_mc_c']
     build_llm_vs_human(freq)
-    assert freq['constr'][llm1]['sb-hd_mc_c'] == original_count, "Input was mutated"
+    assert freq['constr']['Falcon7B-2023-llm']['sb-hd_mc_c'] == original_count, "Input was mutated"
+
+
+# ---------------------------------------------------------------------------
+# Regression: cosine output on frequencies-2023.json matches reference
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(
+    not os.path.exists(_FREQ_2023) or not os.path.exists(_REF_SYNTAX),
+    reason="Reference data files not present"
+)
+def test_cosine_syntax_matches_reference():
+    """Cosine similarities from frequencies-2023.json match the pre-refactor reference output.
+
+    The reference file uses old model names; _NAME_MAP translates new names to old for comparison.
+    """
+    from util import normalize_by_constr_count, compute_cosine
+    from construction_frequencies import combine_types
+
+    with open(_FREQ_2023) as f:
+        data = json.load(f)
+
+    normalized = normalize_by_constr_count(data)
+    only_syntactic = combine_types(normalized, ['constr'])
+    cosines = compute_cosine(only_syntactic)
+
+    with open(_REF_SYNTAX) as f:
+        ref_raw = json.load(f)
+
+    # Reference keys are stringified tuples, e.g. "('falcon_07', 'llama_07')"
+    ref = {frozenset(eval(k)): float(v) for k, v in ref_raw.items()}
+
+    mismatches = []
+    for (m1, m2), val in cosines.items():
+        old1, old2 = _NAME_MAP[m1], _NAME_MAP[m2]
+        key = frozenset([old1, old2])
+        if key not in ref:
+            mismatches.append(f"Pair ({m1}, {m2}) not found in reference")
+            continue
+        expected = ref[key]
+        if abs(val - expected) > 1e-6:
+            mismatches.append(f"({m1},{m2}): got {val:.8f}, expected {expected:.8f}")
+
+    assert not mismatches, "Cosine regression failures:\n" + "\n".join(mismatches)
