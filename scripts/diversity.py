@@ -1,8 +1,42 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-diversity.py — legacy-format diversity analysis with pairwise & group JSD explain plots
-(+ punctuation splits and learning curves)
+diversity.py — linguistic diversity analysis pipeline.
+
+Computes Shannon and Simpson diversity indices per model/phenomenon, produces
+scatter and MDS plots, and optionally generates pairwise or group-level JSD
+"explain" butterfly plots showing which construction types drive divergence.
+
+Usage (run from repo root):
+    python scripts/diversity.py <JSON_FILES> [OPTIONS]
+
+Arguments:
+    JSON_FILES           One or more frequency JSON files
+                         ({phenomenon: {model: {type: count}}}).
+
+Options:
+    --phenomena          Phenomena to analyse: constr, lexrule, lextype, lexentries
+                         (default: all four).
+    --output-dir DIR     Root directory for all outputs (default: out).
+    --split-punct        Also produce analyses with punctuation-related types
+                         separated out.
+    --explain A B        Pairwise JSD butterfly plot for two named models.
+    --group-explain G1 G2
+                         Group-level JSD butterfly plot; each group is a
+                         comma-separated list of model names.
+    --model-registry PATH
+                         JSON mapping model names to short integer IDs used in
+                         output filenames (default: analysis/model-ids.json).
+    --coverage FLOAT     Coverage target for Top-K type selection (default: 0.9).
+    --max-top INT        Upper cap on types shown in explain plots (default: 60).
+    --learning N         Produce learning curves with N bins per phenomenon.
+
+Output is written into three subdirectories of --output-dir:
+    plots/   scatter PNGs, butterfly plots, cumulative JSD curves
+    mds/     markdown tables with per-model diversity scores
+    json/    top-K contributors JSON
+
+A README.md is written to --output-dir explaining filenames.
 """
 
 import argparse, json, math, os, re, random

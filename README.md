@@ -109,53 +109,128 @@ where `{gA}` and `{gB}` are group tags of the form `g1.3.4` (dot-separated IDs f
 - numpy
 - matplotlib
 
-### Frequency Comparison Plots
+### Cosine Similarity Matrices
 
-`visualize_frequencies.py` generates bar+scatter plots comparing each LLM model's
-top-N construction, lexrule, and lextype frequencies against the three human baselines
-(NYT, Wikipedia, WSJ), normalized by sentence count.
+`construction_frequencies.py` computes pairwise cosine-similarity matrices from one or
+more frequency JSON files, normalised by construction count.
 
 #### Usage
 
 ```bash
-python scripts/visualize_frequencies.py <frequencies_json>
+python scripts/construction_frequencies.py <frequencies_json> [<frequencies_json> ...] \
+    --output-dir <dir>
 ```
-
-Run from the repo root. Model names in the JSON must match those defined in `dataset_sizes`
-in `scripts/construction_frequencies.py`.
 
 #### Example
 
 ```bash
-python scripts/visualize_frequencies.py analysis/frequencies-json/frequencies-models-wiki-wsj.json
+python scripts/construction_frequencies.py \
+    analysis/frequencies-json/frequencies-2023.json \
+    analysis/frequencies-json/frequencies-2025-50K.json \
+    --output-dir analysis/cosine-pairs/models
+```
+
+#### Output Files
+
+Three JSON files written to `--output-dir` (default: `analysis/cosine-pairs`):
+
+| File | Description |
+| ---- | ----------- |
+| `syntax-only.json` | Cosine similarities over construction types |
+| `lexrule-only.json` | Cosine similarities over lexical rules |
+| `lextype-only.json` | Cosine similarities over lexical types |
+
+Each file contains a flat dict with stringified `(model1, model2)` tuple keys and
+float values.  These files feed into `pca.py`.
+
+#### Dependencies
+
+- numpy, scipy
+
+### Frequency Comparison Plots
+
+`visualize_frequencies.py` generates bar+scatter plots comparing each LLM model's
+top-N construction, lexrule, and lextype frequencies against the human baselines,
+normalised by construction count.  Model names must follow the `-human` / `-llm`
+naming convention.
+
+#### Usage
+
+```bash
+python scripts/visualize_frequencies.py <frequencies_json> [--output-dir <dir>]
+```
+
+#### Example
+
+```bash
+python scripts/visualize_frequencies.py analysis/frequencies-json/frequencies-2023.json
 ```
 
 > **Note:** On headless machines (no display), prefix with `MPLBACKEND=Agg`:
 > ```bash
-> MPLBACKEND=Agg python scripts/visualize_frequencies.py analysis/frequencies-json/frequencies-models-wiki-wsj.json
+> MPLBACKEND=Agg python scripts/visualize_frequencies.py analysis/frequencies-json/frequencies-2023.json
 > ```
 
 #### Output Files
 
-PNG files written to `analysis/plots/frequencies/0-50/`. Two sets are produced:
+PNG files written to `<output_dir>/0-50/` (default output dir: `analysis/plots/frequencies`).
+Two sets are produced:
 
-**Per-model** (one bar per LLM, normalized by sentence count):
+**Per-model** (one bar per LLM vs. three human baselines, normalised by construction count):
 ```
-Top frequencies-llama_30-original-wikipedia-wsj-constr.png
-Bottom frequencies-llama_30-original-wikipedia-wsj-constr.png
+Top frequencies-Llama30B-2023-llm-NYT-2023-human-WSJ-1987-human-Wikipedia-2008-human-constr.png
 ...
 ```
 
-**Combined** (all LLMs aggregated as `llm`, normalized by construction count):
+**Combined** (all LLMs aggregated as `llm` vs. human baselines, normalised by construction count):
 ```
-Top frequencies-llm-original-wikipedia-wsj-constr.png
-Bottom frequencies-llm-original-wikipedia-wsj-constr.png
+Top frequencies-llm-NYT-2023-human-WSJ-1987-human-Wikipedia-2008-human-constr.png
 ...
 ```
 
 #### Dependencies
 
 - numpy, pandas, matplotlib
+
+### JSD Example Extraction
+
+`extract_ex_JSD.py` enriches a top-contributors JSON (produced by `diversity.py --group-explain`)
+with example sentences and constituent strings for each construction or lexical type listed,
+drawn from DELPH-IN TSDB profiles.
+
+#### Usage
+
+```bash
+python scripts/extract_ex_JSD.py <jsd_file> [<jsd_file> ...] \
+    --data-dir <parsed_dir> --output-dir <out_dir> --erg-dir <erg_dir>
+```
+
+#### Example
+
+```bash
+python scripts/extract_ex_JSD.py analysis/jsd/constr-g1.2.3--vs--g5.6.7-top-contributors.json \
+    --data-dir parsed/ --output-dir analysis/jsd/ --erg-dir /path/to/erg
+```
+
+#### Options
+
+| Option | Default | Description |
+| ------ | ------- | ----------- |
+| `--data-dir` | required | Directory with one subdir per model (TSDB profile or folder of profiles) |
+| `--output-dir` | required | Where to write enriched JSON(s) |
+| `--erg-dir` | required | ERG grammar directory |
+| `--mode` | `constructions` | `constructions` for non-terminal nodes; `lextypes` for preterminal lexical types |
+| `--max-per-model` | 10 | Max examples per type per model |
+| `--restrict-sides` | `both` | Restrict to models on JSD side `A`, `B`, or `both` |
+
+#### Output Files
+
+One enriched JSON per input file, written to `--output-dir` with an `-examples` suffix.
+Each type entry gains an `"examples"` field: `{model: [{"sentence": ..., "constituent": ...}]}`.
+
+#### Dependencies
+
+- pydelphin
 
 ### PCA Plots
 
