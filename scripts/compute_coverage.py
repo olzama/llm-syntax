@@ -1,4 +1,27 @@
-import sys, os
+"""
+compute_coverage.py — compute and plot ERG parse coverage across datasets.
+
+Reads TSDB profiles organised as <datasets_dir>/<subdir>/<model>-<section>/ and produces:
+  - a coverage table (coverage.txt)
+  - bar plot of total coverage per model
+  - binned coverage-vs-length line plots, overall and per section
+
+Usage (run from repo root):
+    python scripts/compute_coverage.py <datasets_dir> [--output-dir <dir>]
+
+Arguments:
+    datasets_dir    Root directory containing parsed TSDB profiles.
+                    Subdirs must follow the naming pattern <model>-<section>.
+
+Options:
+    --output-dir    Root directory for all output files (default: analysis).
+                    Subdirs created: coverage/, plots/all-lengths/, plots/zoomed-<min>-<max>/.
+"""
+
+import argparse
+import os
+import sys
+
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from delphin import itsdb
@@ -51,8 +74,7 @@ def bin_data(cov_by_len, sen_by_len, bin_size=10):
     return binned_cov, binned_sen
 
 
-def plot_binned_coverage_per_section(cov_by_len, sen_by_len, model_colors, bin_size=5):
-    # Loop through each dataset in the subdir and plot a line for each
+def plot_binned_coverage_per_section(cov_by_len, sen_by_len, model_colors, output_dir, bin_size=5):
     for section_name in cov_by_len:
         plt.figure(figsize=(10, 6))
         for model_name in cov_by_len[section_name]:
@@ -69,7 +91,8 @@ def plot_binned_coverage_per_section(cov_by_len, sen_by_len, model_colors, bin_s
         plt.ylabel('Coverage (Binned)', fontsize=14)
         plt.title(f'Binned Coverage vs Length - {section_name}', fontsize=16)
         plt.grid(True)
-        output_filename = f'plots/all-lengths/coverage_vs_length_{section_name}.png'
+        output_filename = os.path.join(output_dir, 'plots', 'all-lengths',
+                                       f'coverage_vs_length_{section_name}.png')
         plt.tight_layout()
         plt.legend()
         plt.savefig(output_filename)
@@ -78,7 +101,7 @@ def plot_binned_coverage_per_section(cov_by_len, sen_by_len, model_colors, bin_s
 
 
 def plot_coverage_table(cov_by_len, sen_by_len, dataset_names, total_coverages_by_model, total_sentences_by_model,
-                        model_colors):
+                        model_colors, output_dir):
     coverage_data = {}
     section_names = set()
     model_names = set()
@@ -104,7 +127,7 @@ def plot_coverage_table(cov_by_len, sen_by_len, dataset_names, total_coverages_b
     # Prepare the table headers: models as columns
     header = ['Section'] + sorted(list(model_names))
     section_coverages = {section: [] for section in section_names}
-    with open("coverage/coverage.txt", "w") as f:
+    with open(os.path.join(output_dir, 'coverage', 'coverage.txt'), "w") as f:
         f.write("\t".join(header) + "\n")
         for section in coverage_data:
             row = [section]
@@ -127,11 +150,11 @@ def plot_coverage_table(cov_by_len, sen_by_len, dataset_names, total_coverages_b
     ax.set_ylim(0.8, 1.0)
     ax.set_title('Total Coverage by Model')
     plt.tight_layout()
-    plt.savefig("plots/total_coverage.png")
-    print("Total coverage plot saved to 'plots/total_coverage.png'.")
+    plt.savefig(os.path.join(output_dir, 'plots', 'total_coverage.png'))
+    print(f"Total coverage plot saved to {os.path.join(output_dir, 'plots', 'total_coverage.png')}.")
 
 
-def plot_binned_coverage_all_data(total_coverages_by_model, total_sentences_by_model, bin_size=5):
+def plot_binned_coverage_all_data(total_coverages_by_model, total_sentences_by_model, output_dir, bin_size=5):
     binned_coverage_by_model = {}
     for model_name in total_coverages_by_model['length']:
         cov = total_coverages_by_model['length'][model_name]
@@ -152,11 +175,12 @@ def plot_binned_coverage_all_data(total_coverages_by_model, total_sentences_by_m
     ax.grid(True)
     plt.tight_layout()
     plt.legend()
-    plt.savefig('plots/all-lengths/coverage_vs_length_all_data_by_model.png')
-    print("Saved plot as 'plots/all-lengths/coverage_vs_length_all_data_by_model.png'.")
+    out = os.path.join(output_dir, 'plots', 'all-lengths', 'coverage_vs_length_all_data_by_model.png')
+    plt.savefig(out)
+    print(f"Saved plot as {out}.")
 
 
-def plot_zoomed_binned_coverage_all_data(total_cov, total_sen, min, max, bin_size=5):
+def plot_zoomed_binned_coverage_all_data(total_cov, total_sen, min, max, output_dir, bin_size=5):
     binned_coverage_by_model = {}
     fig, ax = plt.subplots(figsize=(10, 6))
     for model_name in total_cov['length']:
@@ -178,11 +202,12 @@ def plot_zoomed_binned_coverage_all_data(total_cov, total_sen, min, max, bin_siz
     ax.grid(True)
     plt.tight_layout()
     plt.legend()
-    output_filename = f'plots/zoomed-{min}-{max}/coverage_vs_length_all_data_by_model_zoomed.png'
+    output_filename = os.path.join(output_dir, 'plots', f'zoomed-{min}-{max}',
+                                   'coverage_vs_length_all_data_by_model_zoomed.png')
     plt.savefig(output_filename)
     print(f"Saved zoomed plot as {output_filename}.")
 
-def plot_zoomed_coverage(cov_by_len, sen_by_len, model_colors, min, max, bin_size=5):
+def plot_zoomed_coverage(cov_by_len, sen_by_len, model_colors, min, max, output_dir, bin_size=5):
     for section_name in cov_by_len:
         plt.figure(figsize=(10, 6))
         for model_name in cov_by_len[section_name]:
@@ -201,14 +226,15 @@ def plot_zoomed_coverage(cov_by_len, sen_by_len, model_colors, min, max, bin_siz
         plt.title(f'Zoomed in Binned Coverage vs Length - {section_name} ({min}-{max})', fontsize=16)
         plt.ylim(0.8, 1.0)
         plt.grid(True)
-        output_filename = f'plots/zoomed-{min}-{max}/coverage_vs_length_zoomed_{section_name}.png'
+        output_filename = os.path.join(output_dir, 'plots', f'zoomed-{min}-{max}',
+                                       f'coverage_vs_length_zoomed_{section_name}.png')
         plt.tight_layout()
         plt.legend()
         plt.savefig(output_filename)
         plt.close()
         print(f"Saved zoomed plot as {output_filename}")
 
-def process_datasets(path_to_datasets, total_coverage, total_sentences):
+def process_datasets(path_to_datasets, total_coverage, total_sentences, output_dir):
     colors = cm.get_cmap('tab10', 10)
     cov_by_len = {}
     sen_by_len = {}
@@ -229,7 +255,7 @@ def process_datasets(path_to_datasets, total_coverage, total_sentences):
                         sen_by_len[section_name] = {}
                     cov_by_len[section_name][model_name] = dataset_cov_by_len
                     sen_by_len[section_name][model_name] = dataset_sen_by_len
-                    if not model_name in total_coverage['model']:
+                    if model_name not in total_coverage['model']:
                         total_coverage['model'][model_name] = 0
                         total_sentences['model'][model_name] = 0
                         total_coverage['length'][model_name] = {}
@@ -244,15 +270,26 @@ def process_datasets(path_to_datasets, total_coverage, total_sentences):
                         total_sentences['length'][model_name][l] += dataset_sen_by_len.get(l, 0)
                     if model_name not in model_colors:
                         model_colors[model_name] = colors(len(model_colors))
-    plot_binned_coverage_per_section(cov_by_len, sen_by_len, model_colors,5)
-    #plot_zoomed_coverage(cov_by_len, sen_by_len, model_colors, 13, 25, 2)
-    plot_zoomed_binned_coverage_all_data(total_coverage, total_sentences, 13, 25, 1)
-    plot_binned_coverage_all_data(total_coverage, total_sentences, 5)
-    plot_coverage_table(cov_by_len, sen_by_len, dataset_names, total_coverage, total_sentences, model_colors)
+
+    os.makedirs(os.path.join(output_dir, 'coverage'), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, 'plots', 'all-lengths'), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, 'plots', 'zoomed-13-25'), exist_ok=True)
+
+    plot_binned_coverage_per_section(cov_by_len, sen_by_len, model_colors, output_dir, bin_size=5)
+    plot_zoomed_binned_coverage_all_data(total_coverage, total_sentences, 13, 25, output_dir, bin_size=1)
+    plot_binned_coverage_all_data(total_coverage, total_sentences, output_dir, bin_size=5)
+    plot_coverage_table(cov_by_len, sen_by_len, dataset_names, total_coverage, total_sentences,
+                        model_colors, output_dir)
 
 
 if __name__ == '__main__':
-    path_to_datasets = sys.argv[1]
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('datasets_dir', help='Root directory containing parsed TSDB profiles.')
+    ap.add_argument('--output-dir', default='analysis',
+                    help='Root directory for all output files (default: analysis).')
+    args = ap.parse_args()
+
     total_cov = {'model': {}, 'length': {}}
     total_sen = {'model': {}, 'length': {}}
-    process_datasets(path_to_datasets, total_cov, total_sen)
+    process_datasets(args.datasets_dir, total_cov, total_sen, args.output_dir)
